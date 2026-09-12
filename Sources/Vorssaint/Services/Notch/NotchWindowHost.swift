@@ -49,6 +49,7 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
     }
 
     func present(size: CGSize, geometry: NotchGeometry, animated: Bool, transitionContent: NotchContentTransition = .none) {
+        canvas.updateContrast()
         let frame = geometry.frame(for: size)
         let changesFrame = geometry != currentGeometry || size != targetSize || (!isAnimating && panel.frame != frame)
         guard changesFrame || transitionContent != .none else { return }
@@ -79,7 +80,7 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         var translation = CGAffineTransform(translationX: (envelope.width - previousWidth) / 2, y: 0)
         let from = previousPath.copy(using: &translation)
         let grows = size.height > previousPath.boundingBoxOfPath.height
-        let animation = CASpringAnimation(perceptualDuration: grows ? 0.28 : 0.20, bounce: 0)
+        let animation = CASpringAnimation(perceptualDuration: grows ? 0.34 : 0.26, bounce: 0)
         animation.keyPath = "path"
         animation.fromValue = from
         animation.toValue = canvas.targetPath
@@ -164,6 +165,7 @@ final class NotchPanel: NSPanel {
 private final class NotchCanvas: NSView {
     private let host: NotchHostingView
     private let silhouette = CAShapeLayer()
+    private let edge = CAShapeLayer()
     private let contentCover = CALayer()
     private var dropActions: NotchFileDropActions?
     private var acceptingDrag = false
@@ -186,6 +188,11 @@ private final class NotchCanvas: NSView {
         layer?.masksToBounds = true
         layer?.mask = silhouette
         addSubview(host)
+        edge.fillColor = nil
+        updateContrast()
+        edge.lineWidth = 0.5
+        edge.zPosition = 2
+        layer?.addSublayer(edge)
         contentCover.name = "notch.contentCover"
         contentCover.backgroundColor = NSColor.black.cgColor
         contentCover.opacity = 0
@@ -201,6 +208,16 @@ private final class NotchCanvas: NSView {
         contentSize = size
         self.attached = attached
         needsLayout = true
+    }
+
+    func updateContrast() {
+        let color = NSColor.white.withAlphaComponent(
+            NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.45 : 0.12).cgColor
+        guard edge.strokeColor != color else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        edge.strokeColor = color
+        CATransaction.commit()
     }
 
     func setFileDropActions(_ actions: NotchFileDropActions?) {
@@ -265,8 +282,17 @@ private final class NotchCanvas: NSView {
         return super.hitTest(point)
     }
 
-    func animate(_ animation: CAAnimation) { silhouette.add(animation, forKey: Self.motionKey) }
-    func stopMotion() { silhouette.removeAnimation(forKey: Self.motionKey) }
+    func animate(_ animation: CAAnimation) {
+        silhouette.add(animation, forKey: Self.motionKey)
+        if let borderAnimation = animation.copy() as? CAAnimation {
+            borderAnimation.delegate = nil
+            edge.add(borderAnimation, forKey: Self.motionKey)
+        }
+    }
+    func stopMotion() {
+        silhouette.removeAnimation(forKey: Self.motionKey)
+        edge.removeAnimation(forKey: Self.motionKey)
+    }
 
     func transitionContent(_ kind: NotchContentTransition) {
         guard kind != .none else { return }
@@ -280,16 +306,23 @@ private final class NotchCanvas: NSView {
             contentCover.opacity = 0
             let transition = CATransition()
             transition.type = .fade
-            transition.duration = 0.10
+            transition.duration = 0.18
+            transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             host.layer?.add(transition, forKey: kCATransition)
         } else {
             // Fade the pixels, not the hosting view: making that view
             // transparent also removes the compact button's AX/hit frame.
-            let animation = CABasicAnimation(keyPath: "opacity")
-            animation.fromValue = kind == .dismiss || wasDismissing ? currentOpacity : 1
-            animation.toValue = kind == .dismiss ? 1 : 0
-            animation.duration = kind == .dismiss ? 0.06 : 0.20
-            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            let animation = CAKeyframeAnimation(keyPath: "opacity")
+            let start = kind == .dismiss || wasDismissing ? currentOpacity : 1
+            // Give the silhouette a head start before revealing full-width
+            // content. Reversals continue from the opacity already on screen.
+            animation.values = kind == .dismiss ? [start, 1] : [start, start, 0]
+            animation.keyTimes = kind == .dismiss ? [0, 1] : [0, 0.625, 1]
+            animation.duration = kind == .dismiss ? 0.08 : 0.40
+            animation.calculationMode = .linear
+            animation.timingFunctions = kind == .dismiss
+                ? [CAMediaTimingFunction(name: .easeOut)]
+                : [CAMediaTimingFunction(name: .linear), CAMediaTimingFunction(name: .easeOut)]
             contentCover.opacity = kind == .dismiss ? 1 : 0
             contentCover.add(animation, forKey: "notch.opacity")
         }
@@ -315,10 +348,13 @@ private final class NotchCanvas: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         silhouette.frame = bounds
+        edge.frame = bounds
         contentCover.frame = bounds
         var translation = CGAffineTransform(translationX: (bounds.width - contentSize.width) / 2, y: 0)
-        silhouette.path = NotchShape(attached: attached, radius: min(24, contentSize.height / 2))
+        silhouette.path = NotchShape(attached: attached, radius: min(28, contentSize.height / 2))
             .path(in: CGRect(origin: .zero, size: contentSize)).cgPath.copy(using: &translation)
+        edge.path = silhouette.path
+        edge.opacity = contentSize.height > 64 ? 1 : 0
         // Render the entire reveal area once; changing only the layer mask
         // then exposes cached pixels without redrawing SwiftUI every frame.
         if host.frame != bounds { host.frame = bounds }

@@ -53,7 +53,7 @@ final class NotchMusicService: ObservableObject {
             let next = NotchPlayback.decode(data, previousArtwork: cachedArtwork)
             if cachedArtwork != next?.track.artworkData {
                 cachedArtwork = next?.track.artworkData
-                cachedImage = cachedArtwork.flatMap { ImageThumbnailer.thumbnail(data: $0, pointSize: 96, scale: 2) }
+                cachedImage = cachedArtwork.flatMap { ImageThumbnailer.thumbnail(data: $0, pointSize: 160, scale: 2) }
             }
             let image = cachedImage
             DispatchQueue.main.async {
@@ -101,17 +101,24 @@ final class NotchMusicService: ObservableObject {
         commandFailed = false
     }
 
-    enum Command: String { case toggle, next, previous }
+    typealias Command = NotchPlaybackCommand
+
+    func seek(to position: Double, in track: RadialNowPlayingSnapshot) {
+        guard let playback, playback.track == track,
+              let position = playback.seekPosition(position) else { return }
+        send(.seek(position))
+    }
 
     func send(_ command: Command) {
-        guard playback != nil, process?.isRunning == true, let input else { return }
+        guard playback != nil, process?.isRunning == true, let input,
+              let message = command.message else { return }
         let requested = generation
         commandFailed = false
         queue.async { [weak self] in
             do {
                 // Native transport commands are asynchronous. The watch
                 // process keeps its run loop alive until the request arrives.
-                try input.fileHandleForWriting.write(contentsOf: Data((command.rawValue + "\n").utf8))
+                try input.fileHandleForWriting.write(contentsOf: Data((message + "\n").utf8))
             } catch {
                 DispatchQueue.main.async {
                     guard let self, self.generation == requested else { return }

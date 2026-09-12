@@ -10,9 +10,15 @@ struct NotchPlayback: Equatable {
     let duration: TimeInterval
     let rate: Double
     let sampledAt: Date
+    let canSeek: Bool
 
     func position(at date: Date) -> TimeInterval {
         min(duration, max(0, elapsed + (isPlaying ? max(0, date.timeIntervalSince(sampledAt)) * rate : 0)))
+    }
+
+    func seekPosition(_ proposed: Double) -> Double? {
+        guard canSeek, duration > 0, proposed.isFinite else { return nil }
+        return min(duration, max(0, proposed))
     }
 
     static func decode(_ data: Data, now: Date = Date(), previousArtwork: Data? = nil) -> NotchPlayback? {
@@ -38,6 +44,7 @@ struct NotchPlayback: Equatable {
                                 remoteIsPlaying: reply.isPlaying, info: reply.info),
                              elapsed: seconds("kMRMediaRemoteNowPlayingInfoElapsedTime"),
                              duration: seconds("kMRMediaRemoteNowPlayingInfoDuration"),
-                             rate: rate, sampledAt: now)
+                             rate: rate, sampledAt: now,
+                             canSeek: reply.info["canSeek"] as? Bool == true)
     }
 }

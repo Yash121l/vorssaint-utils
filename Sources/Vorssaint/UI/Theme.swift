@@ -135,16 +135,20 @@ private struct PanelCardModifier: ViewModifier {
     @Environment(\.notchPresentation) private var notchPresentation
 
     func body(content: Content) -> some View {
+        if notchPresentation {
+            content.padding(12).modifier(NotchControlSurface(cornerRadius: 18))
+        } else {
         content
             .padding(10)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(notchPresentation ? .black : PanelSurface.cardFill(for: colorScheme))
+                    .fill(PanelSurface.cardFill(for: colorScheme))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.7)
             )
+        }
     }
 }
 

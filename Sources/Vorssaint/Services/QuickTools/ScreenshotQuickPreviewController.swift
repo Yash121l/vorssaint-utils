@@ -452,7 +452,7 @@ private struct ScreenshotQuickPreviewView: View {
                     .interpolation(.high)
                     .scaledToFit()
                     .frame(maxWidth: 320, maxHeight: 138)
-                    .frame(width: 320, height: 138)
+                    .frame(width: embedded ? nil : 320, height: 138)
                     .background(Color.black.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .overlay(
@@ -510,8 +510,8 @@ private struct ScreenshotQuickPreviewView: View {
             }
         }
         .padding(10)
-        .frame(width: ScreenshotQuickPreviewController.size(showingLink: false).width,
-               height: ScreenshotQuickPreviewController.size(
+        .frame(width: embedded ? nil : ScreenshotQuickPreviewController.size(showingLink: false).width,
+               height: embedded ? nil : ScreenshotQuickPreviewController.size(
                    showingLink: model.sharedRecord != nil).height)
         .background {
             if !embedded {
@@ -570,7 +570,7 @@ private struct ScreenshotQuickPreviewView: View {
             .accessibilityLabel(strings.deleteLink)
         }
         .padding(.horizontal, 9)
-        .frame(width: 320, height: 48)
+        .frame(width: embedded ? nil : 320, height: 48)
         .background(Color.primary.opacity(0.055),
                     in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay(

@@ -58,6 +58,10 @@ struct NotchStrings {
     let sizeHint: String
     let hapticFeedback: String
     let hapticHint: String
+    let playbackPosition: String
+    let musicHint: String
+    let music: String
+    let captures: String
 }
 
 extension FeatureStrings {
@@ -135,7 +139,11 @@ extension NotchStrings {
         maximumHeight: "Maximum height",
         sizeHint: "Controls stay compact. Longer lists use up to this height.",
         hapticFeedback: "Haptic feedback",
-        hapticHint: "A gentle tap when opening or switching sections, on a compatible trackpad."
+        hapticHint: "A gentle tap when opening or switching sections, on a compatible trackpad.",
+        playbackPosition: "Playback position",
+        musicHint: "Your music and playback controls appear here.",
+        music: "Music",
+        captures: "Captures"
     )
 
     static let ptBR = NotchStrings(
@@ -192,7 +200,11 @@ extension NotchStrings {
         maximumHeight: "Altura máxima",
         sizeHint: "A área de controles fica compacta. Listas maiores usam até esta altura.",
         hapticFeedback: "Resposta tátil",
-        hapticHint: "Um toque suave ao abrir ou trocar de seção, em um trackpad compatível."
+        hapticHint: "Um toque suave ao abrir ou trocar de seção, em um trackpad compatível.",
+        playbackPosition: "Posição da reprodução",
+        musicHint: "Sua música e os controles de reprodução aparecem aqui.",
+        music: "Música",
+        captures: "Capturas"
     )
 
     static let es = NotchStrings(
@@ -249,7 +261,11 @@ extension NotchStrings {
         maximumHeight: "Altura máxima",
         sizeHint: "Los controles se mantienen compactos. Las listas largas usan hasta esta altura.",
         hapticFeedback: "Respuesta háptica",
-        hapticHint: "Un toque suave al abrir o cambiar de sección, en un trackpad compatible."
+        hapticHint: "Un toque suave al abrir o cambiar de sección, en un trackpad compatible.",
+        playbackPosition: "Posición de reproducción",
+        musicHint: "Tu música y los controles de reproducción aparecen aquí.",
+        music: "Música",
+        captures: "Capturas"
     )
 
     static let de = NotchStrings(
@@ -306,7 +322,11 @@ extension NotchStrings {
         maximumHeight: "Maximale Höhe",
         sizeHint: "Die Steuerung bleibt kompakt. Längere Listen nutzen bis zu dieser Höhe.",
         hapticFeedback: "Haptisches Feedback",
-        hapticHint: "Ein sanfter Impuls beim Öffnen oder Wechseln von Bereichen auf einem kompatiblen Trackpad."
+        hapticHint: "Ein sanfter Impuls beim Öffnen oder Wechseln von Bereichen auf einem kompatiblen Trackpad.",
+        playbackPosition: "Wiedergabeposition",
+        musicHint: "Deine Musik und die Wiedergabesteuerung erscheinen hier.",
+        music: "Musik",
+        captures: "Aufnahmen"
     )
 
     static let fr = NotchStrings(
@@ -363,7 +383,11 @@ extension NotchStrings {
         maximumHeight: "Hauteur maximale",
         sizeHint: "Les commandes restent compactes. Les longues listes utilisent au plus cette hauteur.",
         hapticFeedback: "Retour haptique",
-        hapticHint: "Une légère impulsion à l’ouverture ou au changement de rubrique, sur un trackpad compatible."
+        hapticHint: "Une légère impulsion à l’ouverture ou au changement de rubrique, sur un trackpad compatible.",
+        playbackPosition: "Position de lecture",
+        musicHint: "Votre musique et ses commandes apparaissent ici.",
+        music: "Musique",
+        captures: "Captures"
     )
 
     static let it = NotchStrings(
@@ -420,7 +444,11 @@ extension NotchStrings {
         maximumHeight: "Altezza massima",
         sizeHint: "I controlli restano compatti. Gli elenchi lunghi usano al massimo questa altezza.",
         hapticFeedback: "Feedback aptico",
-        hapticHint: "Un leggero tocco quando apri o cambi sezione, su un trackpad compatibile."
+        hapticHint: "Un leggero tocco quando apri o cambi sezione, su un trackpad compatibile.",
+        playbackPosition: "Posizione di riproduzione",
+        musicHint: "La tua musica e i controlli di riproduzione appaiono qui.",
+        music: "Musica",
+        captures: "Catture"
     )
 
     static let ru = NotchStrings(
@@ -477,7 +505,11 @@ extension NotchStrings {
         maximumHeight: "Максимальная высота",
         sizeHint: "Панель управления остаётся компактной. Длинные списки используют не более этой высоты.",
         hapticFeedback: "Тактильный отклик",
-        hapticHint: "Лёгкий отклик при открытии или смене раздела на совместимом трекпаде."
+        hapticHint: "Лёгкий отклик при открытии или смене раздела на совместимом трекпаде.",
+        playbackPosition: "Позиция воспроизведения",
+        musicHint: "Здесь появятся музыка и управление воспроизведением.",
+        music: "Музыка",
+        captures: "Снимки"
     )
 
     static let tr = NotchStrings(
@@ -534,7 +566,11 @@ extension NotchStrings {
         maximumHeight: "En fazla yükseklik",
         sizeHint: "Denetimler kompakt kalır. Uzun listeler en fazla bu yüksekliği kullanır.",
         hapticFeedback: "Dokunsal geri bildirim",
-        hapticHint: "Uyumlu bir izleme dörtgeninde açarken veya bölüm değiştirirken hafif bir dokunuş."
+        hapticHint: "Uyumlu bir izleme dörtgeninde açarken veya bölüm değiştirirken hafif bir dokunuş.",
+        playbackPosition: "Oynatma konumu",
+        musicHint: "Müziğiniz ve oynatma denetimleri burada görünür.",
+        music: "Müzik",
+        captures: "Yakalamalar"
     )
 
     static let ja = NotchStrings(
@@ -591,7 +627,11 @@ extension NotchStrings {
         maximumHeight: "最大の高さ",
         sizeHint: "コントロールはコンパクトに保たれ、長いリストはこの高さまで広がります。",
         hapticFeedback: "触覚フィードバック",
-        hapticHint: "対応するトラックパッドで、開くときやセクションを切り替えるときに軽い触覚を伝えます。"
+        hapticHint: "対応するトラックパッドで、開くときやセクションを切り替えるときに軽い触覚を伝えます。",
+        playbackPosition: "再生位置",
+        musicHint: "再生中の音楽と操作ボタンがここに表示されます。",
+        music: "ミュージック",
+        captures: "キャプチャ"
     )
 
     static let ko = NotchStrings(
@@ -648,7 +688,11 @@ extension NotchStrings {
         maximumHeight: "최대 높이",
         sizeHint: "제어 영역은 작게 유지되고 긴 목록은 이 높이까지 늘어납니다.",
         hapticFeedback: "햅틱 피드백",
-        hapticHint: "호환되는 트랙패드에서 열거나 섹션을 바꿀 때 가볍게 진동합니다."
+        hapticHint: "호환되는 트랙패드에서 열거나 섹션을 바꿀 때 가볍게 진동합니다.",
+        playbackPosition: "재생 위치",
+        musicHint: "재생 중인 음악과 재생 제어가 여기에 표시됩니다.",
+        music: "음악",
+        captures: "캡처"
     )
 
     static let zhHans = NotchStrings(
@@ -705,7 +749,11 @@ extension NotchStrings {
         maximumHeight: "最大高度",
         sizeHint: "控制区域保持紧凑，较长的列表最多使用此高度。",
         hapticFeedback: "触觉反馈",
-        hapticHint: "在兼容的触控板上，打开或切换区域时提供轻微触感。"
+        hapticHint: "在兼容的触控板上，打开或切换区域时提供轻微触感。",
+        playbackPosition: "播放进度",
+        musicHint: "音乐和播放控制会显示在这里。",
+        music: "音乐",
+        captures: "截图"
     )
 
     static let zhTW = NotchStrings(
@@ -762,7 +810,11 @@ extension NotchStrings {
         maximumHeight: "最大高度",
         sizeHint: "控制區域保持精簡，較長的列表最多使用此高度。",
         hapticFeedback: "觸覺回饋",
-        hapticHint: "在相容的觸控式軌跡板上，開啟或切換區域時提供輕微觸感。"
+        hapticHint: "在相容的觸控式軌跡板上，開啟或切換區域時提供輕微觸感。",
+        playbackPosition: "播放進度",
+        musicHint: "音樂與播放控制會顯示在這裡。",
+        music: "音樂",
+        captures: "擷取"
     )
 
     static let zhHK = NotchStrings(
@@ -819,7 +871,11 @@ extension NotchStrings {
         maximumHeight: "最大高度",
         sizeHint: "控制區域保持精簡，較長的列表最多使用此高度。",
         hapticFeedback: "觸覺回饋",
-        hapticHint: "在兼容的觸控板上，開啟或切換區域時提供輕微觸感。"
+        hapticHint: "在兼容的觸控板上，開啟或切換區域時提供輕微觸感。",
+        playbackPosition: "播放進度",
+        musicHint: "音樂和播放控制會顯示在這裡。",
+        music: "音樂",
+        captures: "擷取"
     )
 
 }

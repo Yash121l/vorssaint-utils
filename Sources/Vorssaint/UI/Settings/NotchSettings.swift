@@ -178,25 +178,43 @@ struct NotchSettings: View {
 
     private var preview: some View {
         VStack(spacing: 12) {
-            HStack(spacing: 25) {
-                Image(systemName: "music.note").foregroundStyle(.mint)
-                Color.clear.frame(width: 28)
-                Image(systemName: "waveform").foregroundStyle(.mint)
+            HStack(spacing: 12) {
+                Label(text.controls, systemImage: NotchModule.controls.symbol)
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(.white.opacity(0.12), in: Capsule())
+                Spacer(minLength: 0)
+                ForEach([NotchModule.music, .clipboard, .files, .system]) { module in
+                    Image(systemName: module.symbol).font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.65))
+                }
+                Image(systemName: "ellipsis").font(.system(size: 11))
             }
-            .font(.system(size: 13, weight: .medium))
-            .opacity(idle == NotchIdleContent.none.rawValue ? 0 : 1)
-            .frame(width: 182, height: 34)
-            .background(.black, in: UnevenRoundedRectangle(bottomLeadingRadius: 15, bottomTrailingRadius: 15))
-            HStack(spacing: 14) {
-                ForEach(NotchModule.allCases) { module in
-                    Image(systemName: module.symbol).font(.system(size: 14))
-                        .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                ForEach([0.35, 0.6], id: \.self) { fraction in
+                    Capsule().fill(.white.opacity(0.1))
+                        .frame(height: 12)
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(.white.opacity(0.8)).frame(width: 130 * fraction, height: 12)
+                        }
+                        .padding(8)
+                        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
                 }
             }
-            .padding(.bottom, 14)
+            HStack(spacing: 38) {
+                ForEach(["cup.and.saucer", "mic", "camera.viewfinder", "record.circle"], id: \.self) { symbol in
+                    Image(systemName: symbol).font(.system(size: 10))
+                        .frame(width: 24, height: 24)
+                        .background(.white.opacity(0.07), in: Circle())
+                }
+            }
         }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 22).padding(.top, 24).padding(.bottom, 14)
+        .frame(width: 350)
+        .background { NotchShape(attached: true, radius: 24).fill(.black) }
         .frame(maxWidth: .infinity)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 16))
+        .padding(.bottom, 8)
         .accessibilityHidden(true)
     }
 

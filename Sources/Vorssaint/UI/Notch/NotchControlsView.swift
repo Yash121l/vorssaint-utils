@@ -10,35 +10,47 @@ struct NotchControlsView: View {
     @AppStorage(DefaultsKey.brightnessControlEnabled) private var brightnessEnabled = false
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 18) {
             let items = NotchSupport.controls()
-            if items.contains(.volume) { NotchAudioControls(notch: service) }
-            if items.contains(.brightness) {
-                if brightnessEnabled { NotchBrightnessControls() }
-                else {
-                    HStack {
-                        Label(FeatureStrings.notch(l10n.language).brightness, systemImage: "sun.max.fill")
-                        Spacer()
-                        Button(l10n.s.menuSettings) {
-                            service.perform {
-                                SettingsRouter.shared.request(AppFeature.brightness.settingsDestination)
-                                (NSApp.delegate as? AppDelegate)?.openSettingsWindow()
-                            }
-                        }.buttonStyle(.plain)
-                    }.font(.system(size: 11, weight: .medium))
+            if items.contains(.volume) || items.contains(.brightness) {
+                if service.geometry.hasSideBySideLevels {
+                    HStack(spacing: 12) { levels(items) }
+                } else {
+                    VStack(spacing: 18) { levels(items) }
                 }
             }
             let shortcuts = items.filter { $0 != .volume && $0 != .brightness }
             if !shortcuts.isEmpty {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    ForEach(shortcuts) { item in shortcut(item) }
+                NotchTileGrid(items: shortcuts, columns: service.geometry.controlColumns) { item in
+                    shortcut(item)
                 }
             }
             if shortcuts.isEmpty, !items.contains(.volume), !items.contains(.brightness) {
                 NotchEmptyView(symbol: "slider.horizontal.3", message: FeatureStrings.notch(l10n.language).empty)
             }
         }
-        .padding(.top, 2)
+    }
+
+    @ViewBuilder private func levels(_ items: [NotchControlItem]) -> some View {
+        if items.contains(.volume) { NotchAudioControls(notch: service) }
+        if items.contains(.brightness) {
+            if brightnessEnabled { NotchBrightnessControls() }
+            else {
+                VStack(alignment: .leading, spacing: 16) {
+                    Label(FeatureStrings.notch(l10n.language).brightness, systemImage: "sun.max.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                    Button(l10n.s.menuSettings) {
+                        service.perform {
+                            SettingsRouter.shared.request(AppFeature.brightness.settingsDestination)
+                            (NSApp.delegate as? AppDelegate)?.openSettingsWindow()
+                        }
+                    }.buttonStyle(.plain).foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, minHeight: NotchLayout.controlHeight, alignment: .leading)
+                .modifier(NotchControlSurface(cornerRadius: 18))
+            }
+        }
     }
 
     @ViewBuilder private func shortcut(_ item: NotchControlItem) -> some View {
@@ -82,67 +94,97 @@ extension NotchControlItem {
 
 struct NotchAudioControls: View {
     @ObservedObject var notch: NotchService = .shared
+    var inline = false
     @ObservedObject private var mixer = AppVolumeMixer.shared
     @ObservedObject private var l10n = L10n.shared
+    private var level: Double? { mixer.systemOutputVolume.map { mixer.systemOutputMuted == true ? 0 : $0 } }
+    private var deviceName: String {
+        mixer.outputDevices.first(where: { $0.uid == mixer.currentOutputDeviceUID })?.name ?? l10n.s.mixerSystemOutputTitle
+    }
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Button {
-                    if let muted = mixer.systemOutputMuted { mixer.requestOutputAdjustment(muted: !muted) }
-                } label: {
-                    Image(systemName: mixer.systemOutputMuted == true ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                }
-                .buttonStyle(.plain)
-                .disabled(mixer.systemOutputMuted == nil)
-                .accessibilityLabel(mixer.systemOutputMuted == true ? l10n.s.actionUnmute : l10n.s.actionMute)
-                Text(FeatureStrings.notch(l10n.language).volume)
-                if notch.modules.contains(.mixer) {
-                    Button { notch.select(.mixer) } label: {
-                        Image(systemName: "slider.vertical.3").frame(width: 16, height: 16)
-                    }
-                    .buttonStyle(.plain).help(l10n.s.mixerSection).accessibilityLabel(l10n.s.mixerSection)
-                }
-                Spacer()
-                Menu {
-                    ForEach(mixer.outputDevices.filter(\.canBeDefaultOutput)) { device in
-                        Button {
-                            _ = mixer.setUniversalOutputDeviceUID(device.uid)
-                        } label: {
-                            if device.uid == mixer.currentOutputDeviceUID {
-                                Label(device.name, systemImage: "checkmark")
-                            } else { Text(device.name) }
-                        }
-                    }
-                } label: {
-                    Text(mixer.outputDevices.first(where: { $0.uid == mixer.currentOutputDeviceUID })?.name
-                         ?? l10n.s.mixerSystemOutputTitle)
-                        .lineLimit(1).truncationMode(.middle)
-                        .frame(maxWidth: 140, alignment: .trailing)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help(l10n.s.mixerSystemOutputTooltip)
-            }
-            .font(.system(size: 11, weight: .medium))
-            if let volume = mixer.systemOutputVolume {
+        VStack(spacing: 4) {
+            if inline {
                 HStack(spacing: 10) {
-                    Slider(value: Binding(get: { mixer.systemOutputMuted == true ? 0 : volume },
-                                          set: { mixer.requestOutputAdjustment(volume: $0) }), in: 0...1)
-                        .controlSize(.small)
-                        .accessibilityLabel(FeatureStrings.notch(l10n.language).volume)
-                        .accessibilityValue("\(Int(((mixer.systemOutputMuted == true ? 0 : volume) * 100).rounded()))%")
-                    Text("\(Int(((mixer.systemOutputMuted == true ? 0 : volume) * 100).rounded()))%")
-                        .font(.system(size: 11, weight: .medium)).monospacedDigit()
-                        .frame(width: 38, alignment: .trailing)
+                    mute
+                    slider
+                    outputMenu
                 }
+                .frame(height: 32)
             } else {
-                Text(l10n.s.mixerOutputUnavailable).font(.caption).foregroundStyle(.secondary)
+                VStack(spacing: 6) {
+                    HStack(spacing: 7) {
+                        mute
+                        Text(FeatureStrings.notch(l10n.language).volume).lineLimit(1)
+                        Spacer(minLength: 0)
+                        if let level { Text("\(Int((level * 100).rounded()))%").monospacedDigit() }
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    slider
+                    outputMenu.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, minHeight: NotchLayout.controlHeight)
+                .modifier(NotchControlSurface(cornerRadius: 18))
             }
             if let error = mixer.outputSwitchError {
-                Text(error).font(.caption).foregroundStyle(.orange).lineLimit(1).help(error)
+                Text(error).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(1).help(error)
             }
         }
+    }
+
+    private var mute: some View {
+        Button {
+            if let muted = mixer.systemOutputMuted { mixer.requestOutputAdjustment(muted: !muted) }
+        } label: {
+            Image(systemName: mixer.systemOutputMuted == true ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.system(size: 12, weight: .medium)).frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(NotchButtonStyle(cornerRadius: 6))
+        .disabled(mixer.systemOutputMuted == nil)
+        .accessibilityLabel(mixer.systemOutputMuted == true ? l10n.s.actionUnmute : l10n.s.actionMute)
+    }
+
+    @ViewBuilder private var slider: some View {
+        if let level {
+            NotchLevelSlider(value: Binding(get: { level }, set: { mixer.requestOutputAdjustment(volume: $0) }),
+                             label: FeatureStrings.notch(l10n.language).volume)
+                .frame(height: inline ? 24 : 28)
+        } else {
+            Text(l10n.s.mixerOutputUnavailable).font(.system(size: 10)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+        }
+    }
+
+    private var outputMenu: some View {
+        Menu {
+            ForEach(mixer.outputDevices.filter(\.canBeDefaultOutput)) { device in
+                Button { _ = mixer.setUniversalOutputDeviceUID(device.uid) } label: {
+                    if device.uid == mixer.currentOutputDeviceUID { Label(device.name, systemImage: "checkmark") }
+                    else { Text(device.name) }
+                }
+            }
+            if notch.modules.contains(.mixer) {
+                Divider()
+                Button { notch.select(.mixer) } label: { Label(l10n.s.mixerSection, systemImage: "slider.vertical.3") }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                if inline { Image(systemName: "airplay.audio").font(.system(size: 14)) }
+                else {
+                    Text(deviceName).font(.system(size: 10)).lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: 154, alignment: .leading)
+                }
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+            }
+            .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+        .help(deviceName).accessibilityLabel(l10n.s.mixerSystemOutputTitle)
     }
 }
 
@@ -150,47 +192,50 @@ private struct NotchBrightnessControls: View {
     @ObservedObject private var service = BrightnessService.shared
     @ObservedObject private var l10n = L10n.shared
     @State private var selectedID: CGDirectDisplayID?
-
     private var displays: [BrightnessDisplay] { service.displays.filter { $0.isActive && $0.method != nil } }
     private var display: BrightnessDisplay? {
         displays.first(where: { $0.id == selectedID }) ?? displays.first(where: \.isBuiltIn) ?? displays.first
     }
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack {
+        VStack(spacing: 6) {
+            HStack(spacing: 7) {
                 Label(FeatureStrings.notch(l10n.language).brightness, systemImage: "sun.max.fill")
-                Spacer()
-                if let display {
-                    Menu {
-                        ForEach(displays) { item in
-                            Button(item.name) { selectedID = item.id }
-                        }
-                    } label: {
-                        Text(display.name).lineLimit(1).truncationMode(.middle)
-                            .frame(maxWidth: 140, alignment: .trailing)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                }
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if let display { Text("\(BrightnessSupport.wholePercent(display.brightness))%").monospacedDigit() }
             }
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: 12, weight: .semibold))
             if let display {
-                HStack(spacing: 10) {
-                    Slider(value: Binding(get: { display.brightness }, set: {
-                        service.setBrightness($0, for: display.id, showOSD: true)
-                    }), in: 0...1)
-                        .controlSize(.small)
-                        .accessibilityLabel(FeatureStrings.notch(l10n.language).brightness)
-                    Text("\(BrightnessSupport.wholePercent(display.brightness))%")
-                        .font(.system(size: 11, weight: .medium)).monospacedDigit()
-                        .frame(width: 38, alignment: .trailing)
+                NotchLevelSlider(value: Binding(get: { display.brightness }, set: {
+                    service.setBrightness($0, for: display.id, showOSD: true)
+                }), label: FeatureStrings.notch(l10n.language).brightness)
+                    .frame(height: 28)
+                Menu {
+                    ForEach(displays) { item in
+                        Button(item.name) { selectedID = item.id }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(display.name).font(.system(size: 10)).lineLimit(1).truncationMode(.middle)
+                            .frame(maxWidth: 154, alignment: .leading)
+                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+                    }.foregroundStyle(.secondary)
                 }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text(FeatureStrings.brightness(l10n.language).noDisplays)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, minHeight: NotchLayout.controlHeight)
+        .modifier(NotchControlSurface(cornerRadius: 18))
         .onAppear { service.refresh() }
     }
 }
@@ -202,17 +247,21 @@ struct NotchActionTile: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: symbol).font(.system(size: 16, weight: .medium))
+            VStack(spacing: 6) {
+                Image(systemName: symbol).font(.system(size: 17, weight: .medium))
                     .foregroundStyle(active ? .mint : .white.opacity(0.85))
-                Text(title).font(.system(size: 10, weight: .medium))
+                    .frame(width: 40, height: 40)
+                    .background(active ? Color.mint.opacity(0.17) : Color.white.opacity(0.075), in: Circle())
+                Text(title).font(.system(size: 11, weight: .medium))
                     .lineLimit(2).multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(height: 28, alignment: .top)
             }
-            .frame(maxWidth: .infinity).frame(height: 54)
-            .modifier(NotchControlSurface(cornerRadius: 14, selected: active))
+            .padding(.horizontal, 4)
+            .frame(maxWidth: .infinity).frame(height: NotchLayout.shortcutHeight)
             .contentShape(RoundedRectangle(cornerRadius: 14))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NotchButtonStyle(cornerRadius: 14))
         .accessibilityLabel(title)
         .accessibilityAddTraits(active ? .isSelected : [])
     }

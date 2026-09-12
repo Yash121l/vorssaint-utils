@@ -170,19 +170,18 @@ enum NotchTests {
                       CGRect(x: 0, y: 0, width: 640, height: 480)]
         let compact = NotchGeometry(screen: frames[0], safeAreaTop: 32, cameraWidth: 210)
         let spacious = NotchGeometry(screen: frames[0], safeAreaTop: 32, cameraWidth: 210, layout: .spacious)
-        expect(compact.expanded.width < 400 && spacious.expanded.width > compact.expanded.width,
-               "compact is close to the separate panel's width while spacious remains available")
+        expect(compact.expanded.width >= 440 && spacious.expanded.width > compact.expanded.width,
+               "the standard notch has room for side-by-side controls while spacious remains available")
         let idleMusic = compact.expandedSize(module: .music, musicHasContent: false)
         expect(idleMusic.height < compact.expandedSize(module: .music).height
-               && compact.contentSize(for: idleMusic, navigation: true).height >= 130,
+               && compact.contentSize(for: idleMusic).height >= 130,
                "empty music keeps its message and volume controls without reserving a full player")
         let fullControls = compact.expandedSize(module: .controls, controlRows: 2, sliderCount: 2)
         let fewerShortcuts = compact.expandedSize(module: .controls, controlRows: 1, sliderCount: 2)
         let onlyShortcuts = compact.expandedSize(module: .controls, controlRows: 1, sliderCount: 0)
         expect(fullControls.height > fewerShortcuts.height && fewerShortcuts.height > onlyShortcuts.height,
                "hiding shortcuts or sliders removes their unused vertical space")
-        expect(compact.contentSize(for: compact.expandedSize(module: .controls, controlRows: 0, sliderCount: 0),
-                                   navigation: true).height >= 160,
+        expect(compact.contentSize(for: compact.expandedSize(module: .controls, controlRows: 0, sliderCount: 0)).height >= 160,
                "hiding every control leaves enough room for the empty-state guidance")
         for frame in frames {
             for width in [360.0, 470.0, 600.0] {
@@ -197,7 +196,7 @@ enum NotchTests {
                     }
                     expect(custom.expandedSize(module: .clipboard).height == min(height, frame.height - 48),
                            "long lists use the chosen height without overflowing a shorter display")
-                    expect(custom.contentSize(for: custom.expandedSize(module: .music), navigation: true).height >= 238,
+                    expect(custom.contentSize(for: custom.expandedSize(module: .music)).height >= 212,
                            "custom sizes retain space for music and its essential volume controls")
                 }
             }
@@ -228,14 +227,14 @@ enum NotchTests {
                        "horizontal metadata uses equal wings around the camera")
                 expect(geometry.frame(for: geometry.musicStrip).maxY == frame.maxY - geometry.topInset,
                        "music activity remains attached to the same top edge")
-                expect(geometry.contentSize(for: geometry.expandedSize(module: .music), navigation: true).height >= 238,
+                expect(geometry.contentSize(for: geometry.expandedSize(module: .music)).height >= 212,
                        "compact music reserves room for metadata, transport, progress and volume together")
                 let quiet = geometry.restingSize(showsContent: false)
                 expect(quiet.width == geometry.cameraWidth && quiet.height <= geometry.menuBarHeight,
                        "empty idle does not reserve wings or a footer for unsolicited widgets")
-                expect(geometry.contentSize(for: geometry.expanded, navigation: true).height
-                       == geometry.expanded.height - geometry.safeContentTop - 24 - 38 - 20 - 14,
-                       "content budget matches the actual header, navigation, gaps and bottom inset")
+                expect(geometry.contentSize(for: geometry.expanded).height
+                       == geometry.expanded.height - geometry.safeContentTop - 36 - 18 - 22,
+                       "content reserves one top navigation row, its spacing and the bottom inset")
                 expect(geometry.safeContentTop > geometry.cameraHeight, "controls always clear the physical camera")
                 expect(geometry.appPanelSize.width > 0 && geometry.appPanelSize.height >= 176
                        && geometry.appPanelSize.height < geometry.expandedSize(module: .tools).height,
@@ -333,5 +332,25 @@ enum NotchTests {
                "metadata-only updates retain the existing artwork without retransmitting it")
         expect(NotchPlayback.decode(playingReply, previousArtwork: cachedArtwork)?.track.artworkData == nil,
                "a new track without artwork clears the old cover")
+
+        let seekableReply = Data(String(decoding: playingReply, as: UTF8.self)
+            .replacingOccurrences(of: "\"pid\":12", with: "\"pid\":12,\"canSeek\":true").utf8)
+        let seekable = NotchPlayback.decode(seekableReply, now: now)
+        expect(seekable?.seekPosition(95.5) == 95.5
+               && seekable?.seekPosition(-10) == 0 && seekable?.seekPosition(300) == 180,
+               "scrubbing retains fractions and stays within the current track")
+        expect(playing?.seekPosition(30) == nil && seekable?.seekPosition(.nan) == nil
+               && seekable?.seekPosition(.infinity) == nil,
+               "unsupported playback and non-finite positions cannot produce seek commands")
+        for command in [NotchPlaybackCommand.toggle, .next, .previous, .seek(0), .seek(12.75), .seek(604_800)] {
+            expect(command.message.flatMap(NotchPlaybackCommand.init(message:)) == command,
+                   "playback commands survive their bounded pipe protocol")
+        }
+        for invalid in ["", "stop", "seek", "seek -1", "seek nan", "seek inf", "seek 604801", "seek 10\\ntoggle", "seek 1 2"] {
+            expect(NotchPlaybackCommand(message: invalid) == nil, "malformed playback input is refused: \(invalid)")
+        }
+        expect(NotchPlaybackCommand.seek(.nan).message == nil
+               && NotchPlaybackCommand.seek(-1).message == nil,
+               "invalid internal positions cannot be serialized into adapter input")
     }
 }

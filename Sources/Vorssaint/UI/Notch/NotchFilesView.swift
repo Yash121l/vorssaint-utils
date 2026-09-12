@@ -14,8 +14,9 @@ struct NotchFilesView: View {
         VStack(spacing: 12) {
             if shelf.items.isEmpty {
                 NotchEmptyView(symbol: "tray.and.arrow.down", message: FeatureStrings.notch(l10n.language).dropHint)
-                    .overlay { RoundedRectangle(cornerRadius: 16)
-                        .stroke(.white.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [5, 5])) }
+                    .frame(maxHeight: .infinity)
+                    .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(.white.opacity(0.18), style: StrokeStyle(lineWidth: 0.75, dash: [4, 5])) }
             } else {
                 ShelfTilesView(items: shelf.visibleItems,
                                contentRevision: shelf.contentRevision,
@@ -23,7 +24,7 @@ struct NotchFilesView: View {
                                expandedBatches: shelf.expandedBatches,
                                revealID: shelf.revealTargetID,
                                revealSerial: shelf.addSerial)
-                    .frame(height: 192)
+                    .frame(maxHeight: .infinity)
                 HStack {
                     Text(l10n.s.shelfHint).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
                     Spacer()
@@ -37,6 +38,7 @@ struct NotchFilesView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .confirmationDialog(l10n.s.shelfClearAll, isPresented: $confirmingClear, titleVisibility: .visible) {
             Button(l10n.s.shelfClearAll, role: .destructive) { shelf.clear() }
             Button(l10n.s.uninstallerCancel, role: .cancel) {}

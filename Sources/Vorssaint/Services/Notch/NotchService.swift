@@ -82,14 +82,17 @@ final class NotchService: ObservableObject {
         let sliders = controls.filter { $0 == .volume || $0 == .brightness }.count
         let shortcuts = controls.count - sliders
         return geometry.expandedSize(module: showingAppPanel ? .tools : selected,
-                                     detail: selectedMetric != nil, controlRows: (shortcuts + 2) / 3,
-                                     sliderCount: sliders, musicHasContent: NotchMusicService.shared.playback != nil)
+                                     detail: selectedMetric != nil, controlRows: (shortcuts + geometry.controlColumns - 1) / geometry.controlColumns,
+                                     sliderCount: sliders, musicHasContent: NotchMusicService.shared.playback != nil,
+                                     systemRows: (NotchSupport.systemCardCount(hasBattery: PowerSampler.hasInternalBattery)
+                                        + geometry.systemColumns - 1) / geometry.systemColumns)
     }
-    var contentSize: CGSize { geometry.contentSize(for: expandedSize, navigation: !showingAppPanel && selectedMetric == nil) }
+    var contentSize: CGSize { geometry.contentSize(for: expandedSize) }
     var surfaceSize: CGSize {
         if let captureControls {
             return CGSize(width: geometry.expanded.width,
-                          height: geometry.safeContentTop + (captureControls.selectedTool == .recording ? 158 : 112))
+                          height: geometry.safeContentTop + 28 + 12 + NotchLayout.shortcutHeight + 16
+                            + (captureControls.selectedTool == .recording ? 40 : 0))
         }
         if expanded { return expandedSize }
         if dragPlaceholder { return CGSize(width: geometry.peek.width, height: geometry.safeContentTop + 66) }
@@ -277,6 +280,7 @@ final class NotchService: ObservableObject {
         } else if NotchSupport.closesOnPointerExit(expanded: expanded, peeking: peeking, openedByHover: openedByHover) {
             let work = DispatchWorkItem { [weak self] in
                 guard let self, !self.inside, !self.pinned, !self.heldDrag, !self.keepsWorkingSurface,
+                      !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation),
                       NotchSupport.closesOnPointerExit(expanded: self.expanded, peeking: self.peeking, openedByHover: self.openedByHover) else { return }
                 self.collapse()
             }
@@ -436,7 +440,8 @@ final class NotchService: ObservableObject {
         captureFallback = fallback
         captureClose = close
         captureHover = hover
-        open(.captures, pinned: keepOpen, takeFocus: false, feedback: false)
+        open(.captures, pinned: keepOpen,
+             takeFocus: UserDefaults.standard.bool(forKey: DefaultsKey.screenshotPreviewTakesFocus), feedback: false)
         captureHover?(inside)
         return true
     }
@@ -597,7 +602,8 @@ final class NotchService: ObservableObject {
         observe(workspace, NSWorkspace.didActivateApplicationNotification) { [weak self] in
             guard let self, !self.suspended else { return }
             self.invalidateMenuSpace()
-            guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+            let identifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            guard identifier != Bundle.main.bundleIdentifier, identifier != AssistiveKeyboard.bundleID else { return }
             self.panel?.resignKey()
             if self.expanded, self.modules.contains(.clipboard) {
                 ClipboardHistoryService.shared.rememberPasteTarget()
@@ -659,7 +665,8 @@ final class NotchService: ObservableObject {
         guard eventMonitors.isEmpty else { return }
         let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         if let token = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] _ in
-            guard let self, !self.keepsWorkingSurface else { return }
+            guard let self, !self.keepsWorkingSurface,
+                  !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation) else { return }
             self.collapse()
         }) { eventMonitors.append(token) }
         if let token = NSEvent.addLocalMonitorForEvents(matching: clicks.union(.keyDown), handler: { [weak self] event in
@@ -672,7 +679,8 @@ final class NotchService: ObservableObject {
                 return nil
             }
             if clicks.contains(NSEvent.EventTypeMask(rawValue: 1 << event.type.rawValue)),
-               event.window !== self.panel, !self.keepsWorkingSurface { self.collapse() }
+               event.window !== self.panel, !self.keepsWorkingSurface,
+               !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation) { self.collapse() }
             return event
         }) { eventMonitors.append(token) }
     }
@@ -784,7 +792,9 @@ final class NotchService: ObservableObject {
             || idleContent == .music || NotchSupport.watchesMusicActivity())
         if musicWanted { NotchMusicService.shared.start() } else { NotchMusicService.shared.stop() }
         let needs = expanded && selected == .system && selectedMetric == nil && modules.contains(.system) && !showingAppPanel
-        SystemMonitor.shared.setNotchDetailNeeds(expanded ? selectedMetric?.monitorNeeds ?? .none : .none)
+        var detailNeeds = expanded ? selectedMetric?.monitorNeeds ?? .none : .none
+        if needs, AppFeature.monitorDisk.isAvailable { detailNeeds.disk = true }
+        SystemMonitor.shared.setNotchDetailNeeds(detailNeeds)
         if needs != notchNeedsMonitor {
             notchNeedsMonitor = needs
             SystemMonitor.shared.setNotchVisible(needs)

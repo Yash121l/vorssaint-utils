@@ -49,7 +49,7 @@ struct QuickLauncherView: View {
         .padding(notchSize == nil ? 16 : 0)
         .frame(width: notchSize?.width ?? 420)
         .background { if notchSize == nil { HUDBackdrop(cornerRadius: 22, contrast: .high) } }
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: notchSize == nil ? 22 : 0, style: .continuous))
         .onChange(of: launcher.presentationID) { _, _ in
             hoveredItem = nil
             draggingItem = nil
@@ -211,11 +211,11 @@ struct QuickLauncherView: View {
                 launcher.run(item)
             }
         } label: {
-            VStack(spacing: notchSize == nil ? 7 : 4) {
+            VStack(spacing: notchSize == nil ? 7 : 6) {
                 ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: notchSize == nil ? 12 : 16, style: .continuous)
                         .fill(iconBackground(item, isSelected: isSelected, isHovered: isHovered))
-                        .frame(width: notchSize == nil ? 46 : 22, height: notchSize == nil ? 46 : 22)
+                        .frame(width: notchSize == nil ? 46 : 32, height: notchSize == nil ? 46 : 32)
                         .overlay(
                             Image(systemName: icon(for: item))
                                 .font(.system(size: notchSize == nil ? 19 : 16, weight: .semibold))
@@ -239,7 +239,7 @@ struct QuickLauncherView: View {
                             Image(systemName: "gearshape.circle.fill")
                                 .font(.system(size: 14))
                                 .foregroundStyle(.white, optionsItem == item ? Color.accentColor : Color.secondary)
-                                .frame(width: notchSize == nil ? 46 : 22, height: notchSize == nil ? 46 : 22, alignment: .topLeading)
+                                .frame(width: notchSize == nil ? 46 : 32, height: notchSize == nil ? 46 : 32, alignment: .topLeading)
                                 .offset(x: -7, y: -7)
                                 .help(l10n.s.menuSettings)
                                 .allowsHitTesting(false)
@@ -266,23 +266,23 @@ struct QuickLauncherView: View {
                     }
                 }
                 Text(title(for: item))
-                    .font(.system(size: notchSize == nil ? 10.5 : 9.5, weight: .medium))
+                    .font(.system(size: notchSize == nil ? 10.5 : 10, weight: .medium))
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.center)
                     .lineLimit(2, reservesSpace: true)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, notchSize == nil ? 9 : 5)
+            .padding(.vertical, notchSize == nil ? 9 : 4)
             .background(
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(notchSize != nil ? .black : isSelected ? Color.accentColor.opacity(0.14)
+                    .fill(notchSize != nil ? .clear : isSelected ? Color.accentColor.opacity(0.14)
                           : isHovered ? Color.primary.opacity(0.07)
                           : Color.primary.opacity(0.035))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .strokeBorder(notchSize != nil ? .white.opacity(isSelected || isHovered ? 0.35 : 0.12)
+                    .strokeBorder(notchSize != nil ? .clear
                                   : isSelected ? Color.accentColor.opacity(0.55) : Color.clear,
                                   lineWidth: 1.2)
             )
@@ -507,7 +507,7 @@ struct QuickLauncherView: View {
     }
 
     private func iconBackground(_ item: QuickLauncherItem, isSelected: Bool, isHovered: Bool) -> Color {
-        if notchSize != nil { return .black }
+        if notchSize != nil { return .white.opacity(isSelected || isHovered ? 0.14 : 0.065) }
         if isActive(item) { return Color.accentColor.opacity(0.18) }
         if isSelected || isHovered { return Color.primary.opacity(0.1) }
         return Color.primary.opacity(0.07)

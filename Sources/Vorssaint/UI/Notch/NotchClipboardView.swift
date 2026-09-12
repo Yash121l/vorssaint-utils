@@ -10,62 +10,73 @@ struct NotchClipboardView: View {
     @ObservedObject private var permissions = Permissions.shared
     @State private var query = ""
     @State private var copiedID: UUID?
+    @State private var pinnedOnly = false
     private var text: ClipboardFeatureStrings { FeatureStrings.clipboard(l10n.language) }
+
+    private var entries: [ClipboardHistoryEntry] {
+        history.filteredEntries(matching: query).filter { !pinnedOnly || $0.isPinned }
+    }
 
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField(text.search, text: $query).textFieldStyle(.plain)
+                    .font(.system(size: 12))
                     .accessibilityLabel(text.search)
+                NotchIconButton(symbol: "pin", title: text.pinned, selected: pinnedOnly) {
+                    pinnedOnly.toggle()
+                }
                 NotchIconButton(symbol: "arrow.up.forward.app", title: text.title) {
                     service.perform { history.showHistoryWindow(preferNotch: false) }
                 }
             }
-            .padding(.horizontal, 10).padding(.vertical, 3)
-            .background(.black, in: RoundedRectangle(cornerRadius: 10))
-            .overlay { RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.14), lineWidth: 0.6) }
-            let entries = history.filteredEntries(matching: query)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .modifier(NotchControlSurface(cornerRadius: 14))
             if entries.isEmpty {
-                NotchEmptyView(symbol: "doc.on.clipboard", message: text.empty)
+                NotchEmptyView(symbol: pinnedOnly ? "pin" : "doc.on.clipboard",
+                               message: query.isEmpty && !pinnedOnly ? text.empty : text.noResults)
+                    .frame(maxHeight: .infinity)
             } else {
-                LazyVStack(spacing: 6) {
-                    ForEach(entries) { entry in
-                        HStack(spacing: 10) {
-                            Button {
-                                if permissions.accessibility {
-                                    service.collapse()
-                                    history.copyQuickEntry(entry)
-                                } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(entries) { entry in
+                            HStack(spacing: 10) {
+                                Button {
+                                    if permissions.accessibility {
+                                        service.collapse()
+                                        history.copyQuickEntry(entry)
+                                    } else {
+                                        history.copy(entry) { copied in if copied { copiedID = entry.id } }
+                                    }
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        preview(entry)
+                                        Text(entry.kind == .image ? text.imageEntryLabel : entry.preview)
+                                            .font(.system(size: 12)).lineLimit(2)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(NotchButtonStyle()).help(permissions.accessibility ? text.clickRowShortcut : text.copy)
+                                NotchIconButton(symbol: copiedID == entry.id ? "checkmark" : "doc.on.doc",
+                                                title: copiedID == entry.id ? text.copied : text.copy) {
                                     history.copy(entry) { copied in if copied { copiedID = entry.id } }
                                 }
-                            } label: {
-                                HStack(spacing: 10) {
-                                    preview(entry)
-                                    Text(entry.kind == .image ? text.imageEntryLabel : entry.preview)
-                                        .font(.system(size: 11)).lineLimit(2)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                NotchIconButton(symbol: entry.isPinned ? "pin.fill" : "pin",
+                                                title: entry.isPinned ? text.unpin : text.pin) {
+                                    history.togglePin(entry)
                                 }
-                                .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain).help(permissions.accessibility ? text.clickRowShortcut : text.copy)
-                            NotchIconButton(symbol: copiedID == entry.id ? "checkmark" : "doc.on.doc",
-                                            title: copiedID == entry.id ? text.copied : text.copy) {
-                                history.copy(entry) { copied in if copied { copiedID = entry.id } }
-                            }
-                            NotchIconButton(symbol: entry.isPinned ? "pin.fill" : "pin",
-                                            title: entry.isPinned ? text.unpin : text.pin) {
-                                history.togglePin(entry)
-                            }
+                            .padding(10)
+                            .modifier(NotchControlSurface(cornerRadius: 14, selected: entry.isPinned))
                         }
-                        .padding(10)
-                        .background(.black, in: RoundedRectangle(cornerRadius: 12))
-                        .overlay { RoundedRectangle(cornerRadius: 12)
-                            .stroke(.white.opacity(entry.isPinned ? 0.25 : 0.1), lineWidth: 0.6) }
                     }
-                }
+                    .padding(.bottom, 2)
+                }.scrollIndicators(.automatic)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     @ViewBuilder private func preview(_ entry: ClipboardHistoryEntry) -> some View {

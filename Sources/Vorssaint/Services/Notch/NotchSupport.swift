@@ -59,6 +59,19 @@ enum NotchSize: String, CaseIterable {
     }
 }
 
+/// Shared measurements keep the window's content budget and its SwiftUI
+/// layout in agreement, including small screens and custom sizes.
+enum NotchLayout {
+    static let horizontalInset: CGFloat = 28
+    static let headerHeight: CGFloat = 36
+    static let navigationHeight: CGFloat = 36
+    static let spacing: CGFloat = 18
+    static let bottomInset: CGFloat = 22
+    static let controlHeight: CGFloat = 94
+    static let shortcutHeight: CGFloat = 74
+    static var chromeHeight: CGFloat { headerHeight + spacing + bottomInset }
+}
+
 enum NotchIdleContent: String, CaseIterable {
     case none, battery, music, controls
 }
@@ -166,6 +179,13 @@ enum NotchSupport {
         return (stored + NotchControlItem.allCases).filter {
             seen.insert($0).inserted && !hidden.contains($0.rawValue) && $0.isAvailable(in: defaults)
         }
+    }
+
+    static func systemCardCount(hasBattery: Bool, in defaults: UserDefaults = .standard) -> Int {
+        [.monitorCPU, .monitorGPU, .monitorMemory, .monitorDisk].filter {
+            (feature: AppFeature) in feature.isAvailable(in: defaults)
+        }.count + (AppFeature.monitorNetwork.isAvailable(in: defaults) ? 1 : 0)
+            + (hasBattery && AppFeature.monitorPower.isAvailable(in: defaults) ? 1 : 0)
     }
 
     /// Direct openings are dismissed explicitly, never by the pointer's
@@ -294,34 +314,42 @@ struct NotchGeometry: Equatable {
                height: safeContentTop + 58)
     }
     var peek: CGSize {
-        CGSize(width: min(screen.width - 24, max(cameraWidth + 110, 320)), height: safeContentTop + 42)
+        CGSize(width: min(screen.width - 24, max(cameraWidth + 110, 340)), height: safeContentTop + 52)
     }
     var expanded: CGSize { expandedSize(module: .controls) }
     var expandedWidth: CGFloat {
         let preferred: CGFloat
         switch layout {
-        case .compact: preferred = 380
-        case .spacious: preferred = 520
+        case .compact: preferred = 480
+        case .spacious: preferred = 560
         case .custom: preferred = customWidth
         }
         return min(max(preferred, cameraWidth + 36), screen.width - 24)
     }
     var usesCompactContent: Bool { expandedWidth < 480 }
+    var controlColumns: Int { expandedWidth >= 440 ? 4 : 3 }
+    var systemColumns: Int { expandedWidth >= 440 ? 3 : 2 }
+    var hasSideBySideLevels: Bool { expandedWidth >= 440 }
 
     func expandedSize(module: NotchModule, detail: Bool = false, controlRows: Int = 2,
-                      sliderCount: Int = 2, musicHasContent: Bool = true) -> CGSize {
+                      sliderCount: Int = 2, musicHasContent: Bool = true, systemRows: Int = 3) -> CGSize {
         let contentHeight: CGFloat
         switch module {
         case .controls:
             let rows = max(0, controlRows)
             let sliders = min(2, max(0, sliderCount))
-            let groups = sliders + (rows > 0 ? 1 : 0)
-            let controls = CGFloat(sliders) * 48 + CGFloat(rows) * 54
-                + CGFloat(max(0, rows - 1)) * 8 + CGFloat(max(0, groups - 1)) * 12
-            contentHeight = 96 + (groups == 0 ? 160 : controls + 2)
+            let levelRows = hasSideBySideLevels ? min(1, sliders) : sliders
+            let groups = levelRows + (rows > 0 ? 1 : 0)
+            let controls = CGFloat(levelRows) * NotchLayout.controlHeight + CGFloat(rows) * NotchLayout.shortcutHeight
+                + CGFloat(max(0, rows - 1)) * 12 + CGFloat(max(0, groups - 1)) * 18
+            contentHeight = NotchLayout.chromeHeight + (groups == 0 ? 160 : controls)
         case .mixer: contentHeight = 400
-        case .music: contentHeight = musicHasContent ? (usesCompactContent ? 334 : 374) : 238
-        case .system: contentHeight = 324
+        case .music: contentHeight = NotchLayout.chromeHeight
+                + (musicHasContent ? (usesCompactContent ? 226 : 216) : 132)
+        case .system:
+            let rows = max(0, systemRows)
+            contentHeight = NotchLayout.chromeHeight
+                + (rows == 0 ? 160 : CGFloat(rows) * 96 + CGFloat(rows - 1) * 10)
         case .files: contentHeight = 336
         case .clipboard, .captures: contentHeight = 340
         case .tools: contentHeight = 400
@@ -335,11 +363,11 @@ struct NotchGeometry: Equatable {
         return CGSize(width: expandedWidth,
                       height: min(preferredHeight, screen.height - topInset - 48))
     }
-    func contentSize(for size: CGSize, navigation: Bool) -> CGSize {
-        CGSize(width: size.width - 36,
-               height: size.height - safeContentTop - 24 - 10 - 14 - (navigation ? 48 : 0))
+    func contentSize(for size: CGSize) -> CGSize {
+        CGSize(width: max(0, size.width - NotchLayout.horizontalInset * 2),
+               height: max(0, size.height - safeContentTop - NotchLayout.chromeHeight))
     }
-    var appPanelSize: CGSize { contentSize(for: expandedSize(module: .tools), navigation: false) }
+    var appPanelSize: CGSize { contentSize(for: expandedSize(module: .tools)) }
     func frame(for size: CGSize) -> CGRect {
         CGRect(x: screen.midX - size.width / 2,
                y: screen.maxY - topInset - size.height,

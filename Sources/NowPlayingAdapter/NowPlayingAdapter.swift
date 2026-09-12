@@ -113,6 +113,26 @@ public func vorssaintNowPlayingGet() {
             group.leave()
         }
     }
+    // Only expose seeking when the current player advertises that command.
+    // Missing symbols keep the timeline read-only without affecting playback.
+    typealias CommandsCallback = @convention(block) (NSArray?) -> Void
+    typealias CopyCommands = @convention(c) (DispatchQueue, @escaping CommandsCallback) -> Void
+    typealias CommandID = @convention(c) (AnyObject) -> Int32
+    typealias CommandEnabled = @convention(c) (AnyObject) -> Bool
+    let capabilities = DispatchGroup()
+    if watching,
+       let copyCommands = function(handle, "MRMediaRemoteCopySupportedCommands", as: CopyCommands.self),
+       let commandID = function(handle, "MRMediaRemoteCommandInfoGetCommand", as: CommandID.self),
+       let commandEnabled = function(handle, "MRMediaRemoteCommandInfoGetEnabled", as: CommandEnabled.self),
+       dlsym(handle, "MRMediaRemoteSetElapsedTime") != nil {
+        capabilities.enter()
+        copyCommands(queue) { commands in
+            set("canSeek", commands?.contains(where: {
+                commandID($0 as AnyObject) == 24 && commandEnabled($0 as AnyObject)
+            }) == true)
+            capabilities.leave()
+        }
+    }
 
     // One-shot callers already have an external deadline. A watched session
     // also needs a bound: a missing callback must not leave stale playback
@@ -123,6 +143,7 @@ public func vorssaintNowPlayingGet() {
             exit(1)
         }
     } else { group.wait() }
+    if watching { _ = capabilities.wait(timeout: .now() + 0.2) }
     lock.lock()
     let snapshot = reply
     lock.unlock()
@@ -168,12 +189,11 @@ public func vorssaintNowPlayingWatch() {
             while let end = commandBuffer.firstIndex(of: 0x0A) {
                 let command = String(data: commandBuffer[..<end], encoding: .utf8)
                 commandBuffer.removeSubrange(...end)
-                switch command {
-                case "toggle": sendPlaybackCommand(2)
-                case "next": sendPlaybackCommand(4)
-                case "previous": sendPlaybackCommand(5)
-                default: emit(["sent": false])
+                guard let command, let parsed = NotchPlaybackCommand(message: command) else {
+                    emit(["sent": false])
+                    continue
                 }
+                sendPlaybackCommand(parsed)
             }
         }
     }
@@ -181,9 +201,26 @@ public func vorssaintNowPlayingWatch() {
     withExtendedLifetime(observers) { RunLoop.main.run() }
 }
 
-private func sendPlaybackCommand(_ command: Int32) {
+private func sendPlaybackCommand(_ command: NotchPlaybackCommand) {
     typealias Send = @convention(c) (Int32, CFDictionary?) -> Bool
+    typealias Seek = @convention(c) (Double) -> Void
     let handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY)
+    if case .seek(let position) = command {
+        guard let seek = function(handle, "MRMediaRemoteSetElapsedTime", as: Seek.self) else {
+            emit(["sent": false])
+            return
+        }
+        seek(position)
+        emit(["sent": true])
+        return
+    }
+    let identifier: Int32
+    switch command {
+    case .toggle: identifier = 2
+    case .next: identifier = 4
+    case .previous: identifier = 5
+    case .seek: return
+    }
     let send = function(handle, "MRMediaRemoteSendCommand", as: Send.self)
-    emit(["sent": send?(command, nil) ?? false])
+    emit(["sent": send?(identifier, nil) ?? false])
 }
