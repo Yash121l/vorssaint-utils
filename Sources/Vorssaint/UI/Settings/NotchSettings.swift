@@ -7,6 +7,17 @@ struct NotchSettings: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var features = FeatureRuntime.shared
     @ObservedObject private var permissions = Permissions.shared
+    @AppStorage(DefaultsKey.notchGesturesEnabled) private var gesturesEnabled = false
+    @AppStorage(DefaultsKey.notchKeyboardLight) private var keyboardLight = false
+    @AppStorage(DefaultsKey.notchNotificationsEnabled) private var notificationsEnabled = false
+    @AppStorage(DefaultsKey.notchDismissNativeNotifications) private var dismissNativeNotifications = false
+    @AppStorage(DefaultsKey.notchTimerEnabled) private var timerEnabled = false
+    @AppStorage(DefaultsKey.notchCameraEnabled) private var cameraEnabled = false
+    @AppStorage(DefaultsKey.notchAccessoriesEnabled) private var accessoriesEnabled = false
+    @AppStorage(DefaultsKey.notchCalendarEnabled) private var calendarEnabled = false
+    @AppStorage(DefaultsKey.notchLyricsEnabled) private var lyricsEnabled = false
+    @AppStorage(DefaultsKey.notchLyricsOnline) private var lyricsOnline = false
+    @AppStorage(DefaultsKey.notchQueueEnabled) private var queueEnabled = false
     @AppStorage(DefaultsKey.notchEnabled) private var enabled = false
     @AppStorage(DefaultsKey.notchDisplay) private var display = NotchDisplay.automatic.rawValue
     @AppStorage(DefaultsKey.notchOpenOnHover) private var hover = true
@@ -37,9 +48,9 @@ struct NotchSettings: View {
     private var text: NotchStrings { FeatureStrings.notch(l10n.language) }
 
     private var configuration: [String] {
-        [String(enabled), String(showPlayingMusic), idle, hiddenControls, controlOrder, size,
-         String(customWidth), String(customHeight), String(hapticFeedback), String(shelfWindow), String(dragReveal), String(captureControls), String(quickPanel), String(appPanel), String(hoverExpand), display, String(hover), hidden, order, String(volume),
-         String(brightness), String(battery), String(clipboard), String(clipboardWindow), String(capture), captureAction, String(showInCaptures)]
+        [String(enabled), String(calendarEnabled), String(notificationsEnabled), String(dismissNativeNotifications), String(gesturesEnabled), String(lyricsEnabled), String(lyricsOnline), String(queueEnabled), String(showPlayingMusic), idle, hiddenControls, controlOrder, size,
+         String(timerEnabled), String(cameraEnabled), String(accessoriesEnabled), String(customWidth), String(customHeight), String(hapticFeedback), String(shelfWindow), String(dragReveal), String(captureControls), String(quickPanel), String(appPanel), String(hoverExpand), display, String(hover), hidden, order, String(volume),
+         String(brightness), String(keyboardLight), String(battery), String(clipboard), String(clipboardWindow), String(capture), captureAction, String(showInCaptures)]
     }
 
     private var orderedModules: [NotchModule] {
@@ -53,9 +64,9 @@ struct NotchSettings: View {
             Section {
                 preview
                 HStack {
-                    Toggle(text.enable, isOn: $enabled)
+                    Toggle(text.enable, isOn: $enabled).disabled(!AppFeature.notch.isAvailable)
                     Button(text.open) { NotchService.shared.open() }
-                        .disabled(!enabled)
+                        .disabled(!enabled || !AppFeature.notch.isAvailable)
                 }
                 Text(text.description).font(.caption).foregroundStyle(.secondary)
             } header: { Text(text.title) }
@@ -102,7 +113,7 @@ struct NotchSettings: View {
                         Text(text.idleNone).tag(NotchIdleContent.none.rawValue)
                         Text(text.battery).tag(NotchIdleContent.battery.rawValue)
                         Text(FeatureStrings.radialMenu(l10n.language).mediaNowPlaying).tag(NotchIdleContent.music.rawValue)
-                        Text(text.controls).tag(NotchIdleContent.controls.rawValue)
+                        Text(text.clock).tag(NotchIdleContent.clock.rawValue)
                     }
                     Picker(text.display, selection: $display) {
                         Text(text.automatic).tag(NotchDisplay.automatic.rawValue)
@@ -110,6 +121,15 @@ struct NotchSettings: View {
                         Text(text.mainDisplay).tag(NotchDisplay.main.rawValue)
                     }
                     Toggle(text.hoverExpand, isOn: $hoverExpand).disabled(!hover)
+                    if AppFeature.notchGestures.isAvailable {
+                        Toggle(FeatureStrings.notchGestures(l10n.language).title, isOn: $gesturesEnabled)
+                        Text(FeatureStrings.notchGestures(l10n.language).hint).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if notificationsEnabled, AppFeature.notchNotifications.isAvailable {
+                        let notificationsText = FeatureStrings.notchNotifications(l10n.language)
+                        Toggle(notificationsText.dismissSystemBanner, isOn: $dismissNativeNotifications)
+                        Text(notificationsText.dismissSystemBannerHint).font(.caption).foregroundStyle(.secondary)
+                    }
                     Toggle(text.hapticFeedback, isOn: $hapticFeedback)
                     Text(text.hapticHint).font(.caption).foregroundStyle(.secondary)
                     Toggle(text.appPanel, isOn: $appPanel)
@@ -134,12 +154,35 @@ struct NotchSettings: View {
                             }.controlSize(.small)
                         }
                     }
+                    if AppFeature.notchDownloads.isAvailable {
+                        DisclosureGroup(FeatureStrings.notchFiles(l10n.language).downloadsTitle) {
+                            NotchDownloadsSettingsControls()
+                        }
+                    }
                     Text(text.activity).font(.caption).foregroundStyle(.secondary)
                     Toggle(text.playingMusic, isOn: $showPlayingMusic)
                         .disabled(!NotchSupport.modules().contains(.music))
+                    DisclosureGroup(FeatureStrings.radialMenu(l10n.language).mediaNowPlaying) {
+                        let musicText = FeatureStrings.notchMusicExtras(l10n.language)
+                        Toggle(musicText.enableLyrics, isOn: $lyricsEnabled)
+                            .disabled(!AppFeature.notchLyrics.isAvailable)
+                        if lyricsEnabled, AppFeature.notchLyrics.isAvailable {
+                            Text(musicText.onlineHint).font(.caption).foregroundStyle(.secondary)
+                            Toggle(musicText.online, isOn: $lyricsOnline)
+                        }
+                        Toggle(musicText.enableQueue, isOn: $queueEnabled)
+                            .disabled(!AppFeature.notchQueue.isAvailable)
+                        Text(musicText.queueDescription).font(.caption).foregroundStyle(.secondary)
+                    }
                     Toggle(text.volume, isOn: $volume).disabled(!AppFeature.mixer.isAvailable)
                     Toggle(text.brightness, isOn: $brightness).disabled(!AppFeature.brightness.isAvailable)
+                    Toggle(FeatureStrings.brightness(l10n.language).keyboardLight, isOn: $keyboardLight)
+                        .disabled(!AppFeature.brightness.isAvailable || !BrightnessService.keyboardLightIsSupported)
                     Toggle(text.battery, isOn: $battery).disabled(!AppFeature.monitorPower.isAvailable)
+                    Toggle(FeatureStrings.notchActivities(l10n.language).accessories, isOn: $accessoriesEnabled)
+                        .disabled(!AppFeature.notchAccessories.isAvailable || !AppFeature.monitorPower.isAvailable)
+                    Text(FeatureStrings.notchActivities(l10n.language).accessoryDescription)
+                        .font(.caption).foregroundStyle(.secondary)
                     Toggle(text.showInCaptures, isOn: $showInCaptures)
                     Toggle(text.clipboardWindow, isOn: $clipboardWindow)
                         .disabled(!AppFeature.clipboardHistory.isAvailable)
@@ -151,7 +194,7 @@ struct NotchSettings: View {
                                                       selection: $captureAction)
                     }
                     Text(text.privacy).font(.caption).foregroundStyle(.secondary)
-                    if enabled, (volume || brightness), !permissions.accessibility {
+                    if enabled, (volume || brightness || keyboardLight), !permissions.accessibility {
                         PermissionRow(kind: .accessibility)
                     }
                 }
@@ -160,6 +203,8 @@ struct NotchSettings: View {
         .formStyle(.grouped)
         .onChange(of: configuration) { _, _ in
             NotchService.shared.syncWithPreferences()
+            if !NotchLyricsSupport.isEnabled() { NotchLyricsService.shared.stop() }
+            NotchMusicService.shared.syncQueuePreference()
             if AppFeature.brightness.isAvailable { BrightnessService.shared.syncWithPreferences() }
         }
     }
@@ -249,8 +294,14 @@ struct NotchSettings: View {
 
     private func moduleBinding(_ module: NotchModule) -> Binding<Bool> {
         Binding {
-            !hidden.split(separator: ",").contains(Substring(module.rawValue))
+            (module != .timer || timerEnabled) && (module != .camera || cameraEnabled)
+                && (module != .calendar || calendarEnabled) && (module != .notifications || notificationsEnabled)
+                && !hidden.split(separator: ",").contains(Substring(module.rawValue))
         } set: { shown in
+            if module == .timer { timerEnabled = shown }
+            if module == .camera { cameraEnabled = shown }
+            if module == .calendar { calendarEnabled = shown }
+            if module == .notifications { notificationsEnabled = shown }
             var values = Set(hidden.split(separator: ",").map(String.init))
             if shown { values.remove(module.rawValue) } else { values.insert(module.rawValue) }
             hidden = values.sorted().joined(separator: ",")

@@ -5,7 +5,7 @@ import Foundation
 import CoreGraphics
 
 enum NotchModule: String, CaseIterable, Identifiable {
-    case controls, mixer, music, clipboard, captures, files, system, tools
+    case controls, mixer, music, clipboard, captures, files, system, tools, calendar, notifications, timer, camera, downloads
     var id: String { rawValue }
 
     var symbol: String {
@@ -13,6 +13,11 @@ enum NotchModule: String, CaseIterable, Identifiable {
         case .controls: return "slider.horizontal.3"
         case .mixer: return "slider.vertical.3"
         case .music: return "music.note"
+        case .timer: return "timer"
+        case .camera: return "web.camera"
+        case .downloads: return "arrow.down.circle"
+        case .notifications: return "bell"
+        case .calendar: return "calendar"
         case .clipboard: return "doc.on.clipboard"
         case .captures: return "camera.viewfinder"
         case .files: return "tray.full"
@@ -24,6 +29,11 @@ enum NotchModule: String, CaseIterable, Identifiable {
     func isAvailable(in defaults: UserDefaults = .standard) -> Bool {
         switch self {
         case .controls, .music: return true
+        case .timer: return AppFeature.notchTimer.isAvailable(in: defaults)
+        case .camera: return AppFeature.cameraPreview.isAvailable(in: defaults)
+        case .downloads: return AppFeature.notchDownloads.isAvailable(in: defaults)
+        case .notifications: return AppFeature.notchNotifications.isAvailable(in: defaults)
+        case .calendar: return AppFeature.notchCalendar.isAvailable(in: defaults)
         case .mixer: return AppFeature.mixer.isAvailable(in: defaults)
         case .tools: return AppFeature.quickLauncher.isAvailable(in: defaults)
         case .clipboard: return AppFeature.clipboardHistory.isAvailable(in: defaults)
@@ -73,7 +83,19 @@ enum NotchLayout {
 }
 
 enum NotchIdleContent: String, CaseIterable {
-    case none, battery, music, controls
+    case none, battery, music, clock
+}
+
+enum NotchCompactActivity: Equatable {
+    case timer, downloads, music
+
+    var module: NotchModule {
+        switch self {
+        case .timer: return .timer
+        case .downloads: return .downloads
+        case .music: return .music
+        }
+    }
 }
 
 enum NotchControlItem: String, CaseIterable, Identifiable {
@@ -97,10 +119,15 @@ enum NotchControlItem: String, CaseIterable, Identifiable {
 }
 
 enum NotchEvent: String, CaseIterable {
-    case volume, brightness, battery, clipboard, capture
+    case volume, brightness, battery, clipboard, capture, systemNotification, keyboardLight, timer, accessory, download
 
     var preferenceKey: String {
         switch self {
+        case .timer: return DefaultsKey.notchTimerEnabled
+        case .accessory: return DefaultsKey.notchAccessoriesEnabled
+        case .download: return DefaultsKey.notchDownloadsEnabled
+        case .systemNotification: return DefaultsKey.notchNotificationsEnabled
+        case .keyboardLight: return DefaultsKey.notchKeyboardLight
         case .volume: return DefaultsKey.notchVolume
         case .brightness: return DefaultsKey.notchBrightness
         case .battery: return DefaultsKey.notchBattery
@@ -111,17 +138,19 @@ enum NotchEvent: String, CaseIterable {
 
     var priority: Int {
         switch self {
-        case .volume, .brightness: return 3
-        case .capture: return 2
-        case .battery: return 1
-        case .clipboard: return 0
+        case .volume, .brightness, .keyboardLight: return 3
+        case .capture, .timer: return 2
+        case .battery, .systemNotification, .accessory: return 1
+        case .clipboard, .download: return 0
         }
     }
 
     var duration: TimeInterval {
         switch self {
-        case .volume, .brightness: return 1.6
-        case .battery: return 4
+        case .volume, .brightness, .keyboardLight: return 1.6
+        case .systemNotification: return 3
+        case .timer, .download: return 6
+        case .battery, .accessory: return 4
         case .clipboard: return 2.5
         case .capture: return 12
         }
@@ -130,6 +159,22 @@ enum NotchEvent: String, CaseIterable {
 
 enum NotchSupport {
     static let toolColumns = 5
+    static func compactActivity(timer: Bool, downloads: Bool, music: Bool) -> NotchCompactActivity? {
+        if timer { return .timer }
+        if downloads { return .downloads }
+        return music ? .music : nil
+    }
+
+    static func gestureIsOverHeader(expanded: Bool, peeking: Bool, fromTop: CGFloat, safeTop: CGFloat) -> Bool {
+        (expanded || peeking) && (safeTop...safeTop + NotchLayout.headerHeight).contains(fromTop)
+    }
+
+    static func keepsPermissionSurface(requesting: Bool, resolvedAt: TimeInterval?, now: TimeInterval) -> Bool {
+        if requesting { return true }
+        guard let resolvedAt, now.isFinite, resolvedAt.isFinite else { return false }
+        return (0..<1).contains(now - resolvedAt)
+    }
+
     static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {
         AppFeature.notch.isAvailable(in: defaults)
             && defaults.bool(forKey: DefaultsKey.notchEnabled)
@@ -147,6 +192,10 @@ enum NotchSupport {
         var seen = Set<NotchModule>()
         return (stored + NotchModule.allCases).filter {
             seen.insert($0).inserted && !hidden.contains($0.rawValue) && $0.isAvailable(in: defaults)
+                && ($0 != .timer || defaults.bool(forKey: DefaultsKey.notchTimerEnabled))
+                && ($0 != .camera || defaults.bool(forKey: DefaultsKey.notchCameraEnabled))
+                && ($0 != .calendar || defaults.bool(forKey: DefaultsKey.notchCalendarEnabled))
+                && ($0 != .notifications || defaults.bool(forKey: DefaultsKey.notchNotificationsEnabled))
         }
     }
 
@@ -168,6 +217,11 @@ enum NotchSupport {
         if choice == .battery, !AppFeature.monitorPower.isAvailable(in: defaults) { return .none }
         if choice == .music, !modules(in: defaults).contains(.music) { return .none }
         return choice
+    }
+
+    static func visibleIdleContent(isPlaying: Bool, in defaults: UserDefaults = .standard) -> NotchIdleContent {
+        let choice = idleContent(in: defaults)
+        return choice == .music && !isPlaying ? .none : choice
     }
 
     static func controls(in defaults: UserDefaults = .standard) -> [NotchControlItem] {
@@ -197,6 +251,12 @@ enum NotchSupport {
     static func routes(_ event: NotchEvent, in defaults: UserDefaults = .standard) -> Bool {
         guard isEnabled(in: defaults), defaults.bool(forKey: event.preferenceKey) else { return false }
         switch event {
+        case .timer: return NotchTimerSupport.isEnabled(in: defaults)
+        case .accessory: return NotchAccessorySupport.isEnabled(in: defaults)
+        case .download: return AppFeature.notchDownloads.isAvailable(in: defaults)
+            && modules(in: defaults).contains(.downloads)
+        case .systemNotification: return NotchNotificationSupport.isEnabled(in: defaults)
+        case .keyboardLight: return AppFeature.brightness.isAvailable(in: defaults)
         case .volume: return AppFeature.mixer.isAvailable(in: defaults)
         case .brightness:
             return AppFeature.brightness.isAvailable(in: defaults)
@@ -274,6 +334,8 @@ struct NotchGeometry: Equatable {
     let customHeight: CGFloat
     let menuBarHeight: CGFloat
     var compactSideRoom: CGFloat?
+    private var presentationTopInset: CGFloat = 0
+    private var allowsActivityFooter = true
 
     init(screen: CGRect, safeAreaTop: CGFloat, cameraWidth: CGFloat, layout: NotchSize = .compact,
          menuBarHeight: CGFloat = 24, compactSideRoom: CGFloat? = nil,
@@ -289,7 +351,7 @@ struct NotchGeometry: Equatable {
         self.compactSideRoom = compactSideRoom
     }
 
-    var topInset: CGFloat { 0 }
+    var topInset: CGFloat { presentationTopInset }
     var safeContentTop: CGFloat { isNotched ? cameraHeight + 10 : 14 }
     var restingWingWidth: CGFloat {
         let available = min(44, max(0, compactSideRoom ?? 0)).rounded(.down)
@@ -301,17 +363,64 @@ struct NotchGeometry: Equatable {
     func restingSize(showsContent: Bool) -> CGSize {
         showsContent ? collapsed : CGSize(width: cameraWidth, height: isNotched ? cameraHeight : menuBarHeight)
     }
+    /// Music remains one row high, with the physical camera between its wings.
+    /// Insufficient menu space hides the wings instead of growing below the camera.
+    var compactMusicGeometry: NotchGeometry {
+        var compact = self
+        let room = compactSideRoom ?? 0
+        compact.compactSideRoom = room.isFinite && room >= 44 ? min(56, room) : 0
+        compact.allowsActivityFooter = false
+        return compact
+    }
     var musicCameraGap: CGFloat { cameraWidth }
+    func compactTimerGeometry(showsDownloads: Bool) -> NotchGeometry {
+        var compact = self
+        let room = compactSideRoom ?? 0
+        compact.compactSideRoom = room.isFinite ? min(showsDownloads ? 64 : 52, max(0, room)) : 0
+        return compact
+    }
     var musicStrip: CGSize {
         let preferred = min(layout == .spacious ? 520 : 440, screen.width - 24)
-        let room = max(0, compactSideRoom ?? 0).rounded(.down)
+        let measuredRoom = compactSideRoom ?? 0
+        let room = measuredRoom.isFinite ? max(0, measuredRoom).rounded(.down) : 0
         let wings = room >= 36 ? room * 2 : 0
         return CGSize(width: max(cameraWidth, min(preferred, cameraWidth + wings)), height: menuBarHeight)
     }
     var musicWingWidth: CGFloat { max(0, (musicStrip.width - musicCameraGap) / 2) }
+
+    /// Active content must remain readable even before menu geometry is known.
+    /// On a notched screen the fallback uses only the camera's existing width;
+    /// on other screens its whole window sits below the menu bar.
+    var compactActivityUsesFooter: Bool { allowsActivityFooter && musicWingWidth < 44 }
+    var compactActivityContentHeight: CGFloat { compactActivityUsesFooter ? 32 : menuBarHeight }
+    var compactActivityTopPadding: CGFloat { compactActivityUsesFooter && isNotched ? menuBarHeight : 0 }
+    var compactActivityHorizontalPadding: CGFloat { compactActivityUsesFooter ? 4 : 0 }
+    var compactActivityCameraGap: CGFloat { compactActivityUsesFooter ? 0 : musicCameraGap }
+    var compactActivitySize: CGSize {
+        compactActivityUsesFooter
+            ? CGSize(width: cameraWidth, height: compactActivityTopPadding + compactActivityContentHeight)
+            : musicStrip
+    }
+    var compactActivityWingWidth: CGFloat {
+        max(0, (compactActivitySize.width - compactActivityCameraGap - compactActivityHorizontalPadding * 2) / 2)
+    }
+    var compactActivityGeometry: NotchGeometry {
+        var placed = self
+        placed.presentationTopInset = compactActivityUsesFooter && !isNotched ? menuBarHeight : 0
+        return placed
+    }
     var notice: CGSize {
-        CGSize(width: min(screen.width - 24, max(cameraWidth + 160, 360)),
-               height: safeContentTop + 58)
+        noticeSize(notification: false)
+    }
+    var noticeCameraGap: CGFloat { isNotched ? cameraWidth : 0 }
+
+    func noticeSize(notification: Bool) -> CGSize {
+        let wing: CGFloat = notification ? 190 : 112
+        return CGSize(width: min(screen.width - 24, noticeCameraGap + wing * 2), height: menuBarHeight)
+    }
+
+    func noticeWingWidth(notification: Bool) -> CGFloat {
+        max(0, (noticeSize(notification: notification).width - noticeCameraGap) / 2)
     }
     var peek: CGSize {
         CGSize(width: min(screen.width - 24, max(cameraWidth + 110, 340)), height: safeContentTop + 52)
@@ -332,7 +441,9 @@ struct NotchGeometry: Equatable {
     var hasSideBySideLevels: Bool { expandedWidth >= 440 }
 
     func expandedSize(module: NotchModule, detail: Bool = false, controlRows: Int = 2,
-                      sliderCount: Int = 2, musicHasContent: Bool = true, systemRows: Int = 3) -> CGSize {
+                      sliderCount: Int = 2, musicHasContent: Bool = true, musicExtraHeight: CGFloat = 0,
+                      fileMediaVisible: Bool = false, systemRows: Int = 3,
+                      timerHasSession: Bool = false) -> CGSize {
         let contentHeight: CGFloat
         switch module {
         case .controls:
@@ -345,18 +456,20 @@ struct NotchGeometry: Equatable {
             contentHeight = NotchLayout.chromeHeight + (groups == 0 ? 160 : controls)
         case .mixer: contentHeight = 400
         case .music: contentHeight = NotchLayout.chromeHeight
-                + (musicHasContent ? (usesCompactContent ? 226 : 216) : 132)
+                + (musicHasContent ? (usesCompactContent ? 226 : 216) + musicExtraHeight : 132)
         case .system:
             let rows = max(0, systemRows)
             contentHeight = NotchLayout.chromeHeight
                 + (rows == 0 ? 160 : CGFloat(rows) * 96 + CGFloat(rows - 1) * 10)
-        case .files: contentHeight = 336
+        case .files: contentHeight = fileMediaVisible ? NotchLayout.chromeHeight + 600 : 336
         case .clipboard, .captures: contentHeight = 340
-        case .tools: contentHeight = 400
+        case .timer: contentHeight = NotchLayout.chromeHeight + (timerHasSession ? 96 : 202)
+        case .camera: contentHeight = NotchLayout.chromeHeight + (expandedWidth - NotchLayout.horizontalInset * 2) * 0.75 + 50
+        case .tools, .calendar, .notifications, .downloads: contentHeight = 400
         }
         let fillsHeight = detail || [.mixer, .clipboard, .captures, .tools].contains(module)
         var preferredHeight = safeContentTop + (detail ? 440 : contentHeight)
-            + (layout == .spacious && module != .controls && module != .music ? 40 : 0)
+            + (layout == .spacious && module != .controls && module != .music && module != .timer ? 40 : 0)
         if layout == .custom {
             preferredHeight = fillsHeight ? customHeight : min(preferredHeight, customHeight)
         }
@@ -386,6 +499,11 @@ struct NotchSessionState {
 /// Reserve enough backing space for both ends. The visible silhouette moves
 /// inside it; the native window only shrinks after the transition finishes.
 enum NotchMotion {
+    static func duration(from: CGSize, to: CGSize) -> TimeInterval {
+        let grows = to.height > from.height || (to.height == from.height && to.width > from.width)
+        return grows ? 0.34 : 0.26
+    }
+
     static func envelope(from: CGSize, to: CGSize) -> CGSize {
         CGSize(width: max(from.width, to.width), height: max(from.height, to.height))
     }

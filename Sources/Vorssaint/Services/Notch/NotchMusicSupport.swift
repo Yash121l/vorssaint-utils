@@ -3,6 +3,28 @@
 
 import Foundation
 
+/// A colour taken from the cover art, deepened so it reads as a halo over the
+/// notch's black base. Artwork with no real colour of its own returns nothing,
+/// which keeps a grey smudge from appearing behind neutral covers.
+struct NotchArtworkTint: Equatable {
+    let red: Double
+    let green: Double
+    let blue: Double
+
+    static func from(red: Double, green: Double, blue: Double) -> NotchArtworkTint? {
+        let channels = [red, green, blue]
+        guard channels.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
+              let highest = channels.max(), let lowest = channels.min(),
+              highest > 0.05 else { return nil }
+        let range = highest - lowest
+        guard range / highest >= 0.12 else { return nil }
+        // Stretch the channels onto a fixed range so every cover glows with the
+        // same strength instead of following its own exposure.
+        let stretched = channels.map { min(1, max(0, ($0 - lowest) / range * 0.86 + 0.06)) }
+        return NotchArtworkTint(red: stretched[0], green: stretched[1], blue: stretched[2])
+    }
+}
+
 struct NotchPlayback: Equatable {
     let track: RadialNowPlayingSnapshot
     let isPlaying: Bool
@@ -11,6 +33,8 @@ struct NotchPlayback: Equatable {
     let rate: Double
     let sampledAt: Date
     let canSeek: Bool
+    var hasPosition: Bool = true
+    var itemIdentifier: String? = nil
 
     func position(at date: Date) -> TimeInterval {
         min(duration, max(0, elapsed + (isPlaying ? max(0, date.timeIntervalSince(sampledAt)) * rate : 0)))
@@ -45,6 +69,9 @@ struct NotchPlayback: Equatable {
                              elapsed: seconds("kMRMediaRemoteNowPlayingInfoElapsedTime"),
                              duration: seconds("kMRMediaRemoteNowPlayingInfoDuration"),
                              rate: rate, sampledAt: now,
-                             canSeek: reply.info["canSeek"] as? Bool == true)
+                             canSeek: reply.info["canSeek"] as? Bool == true,
+                             hasPosition: (reply.info["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? NSNumber)
+                                .map { $0.doubleValue.isFinite && $0.doubleValue >= 0 } == true,
+                             itemIdentifier: reply.info["itemIdentifier"] as? String)
     }
 }

@@ -51,8 +51,12 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
     func present(size: CGSize, geometry: NotchGeometry, animated: Bool, transitionContent: NotchContentTransition = .none) {
         canvas.updateContrast()
         let frame = geometry.frame(for: size)
-        let changesFrame = geometry != currentGeometry || size != targetSize || (!isAnimating && panel.frame != frame)
-        guard changesFrame || transitionContent != .none else { return }
+        let changesFrame = geometry.isNotched != currentGeometry.isNotched || size != targetSize
+            || frame != currentGeometry.frame(for: targetSize) || (!isAnimating && panel.frame != frame)
+        guard changesFrame || transitionContent != .none else {
+            currentGeometry = geometry
+            return
+        }
         let canAnimate = animated && panel.isVisible && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if canAnimate { canvas.transitionContent(transitionContent) }
         else { canvas.restoreContent() }
@@ -60,6 +64,7 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         let previousPath = canvas.visiblePath
         let previousWidth = canvas.bounds.width
         let sameScreen = geometry.screen == currentGeometry.screen && geometry.isNotched == currentGeometry.isNotched
+            && geometry.topInset == currentGeometry.topInset
         animationGeneration += 1
         isAnimating = false
         canvas.stopMotion()
@@ -79,8 +84,8 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         canvas.layoutSubtreeIfNeeded()
         var translation = CGAffineTransform(translationX: (envelope.width - previousWidth) / 2, y: 0)
         let from = previousPath.copy(using: &translation)
-        let grows = size.height > previousPath.boundingBoxOfPath.height
-        let animation = CASpringAnimation(perceptualDuration: grows ? 0.34 : 0.26, bounce: 0)
+        let duration = NotchMotion.duration(from: previousPath.boundingBoxOfPath.size, to: size)
+        let animation = CASpringAnimation(perceptualDuration: duration, bounce: 0)
         animation.keyPath = "path"
         animation.fromValue = from
         animation.toValue = canvas.targetPath
@@ -106,7 +111,6 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         panel.setFrame(currentGeometry.frame(for: targetSize), display: false)
         canvas.layoutSubtreeIfNeeded()
         CATransaction.commit()
-        if canvas.isContentCovered { canvas.restoreContent() }
         runSettledActions()
     }
 
@@ -158,8 +162,14 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
 
 final class NotchPanel: NSPanel {
     var acceptsKeyFocus = false
+    var handleScroll: ((NSEvent) -> Bool)?
     override var canBecomeKey: Bool { acceptsKeyFocus }
     override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .scrollWheel, handleScroll?(event) == true { return }
+        super.sendEvent(event)
+    }
 }
 
 private final class NotchCanvas: NSView {
@@ -273,7 +283,6 @@ private final class NotchCanvas: NSView {
     private static let motionKey = "notch.resize"
     var targetPath: CGPath? { silhouette.path }
     var visiblePath: CGPath? { silhouette.presentation()?.path ?? silhouette.path }
-    var isContentCovered: Bool { contentCover.opacity == 1 }
 
     func containsVisiblePoint(_ point: CGPoint) -> Bool { visiblePath?.contains(point) == true }
 
@@ -297,7 +306,6 @@ private final class NotchCanvas: NSView {
     func transitionContent(_ kind: NotchContentTransition) {
         guard kind != .none else { return }
         let currentOpacity = contentCover.presentation()?.opacity ?? contentCover.opacity
-        let wasDismissing = contentCover.opacity == 1
         contentCover.removeAnimation(forKey: "notch.opacity")
         host.layer?.removeAnimation(forKey: kCATransition)
         CATransaction.begin()
@@ -313,17 +321,15 @@ private final class NotchCanvas: NSView {
             // Fade the pixels, not the hosting view: making that view
             // transparent also removes the compact button's AX/hit frame.
             let animation = CAKeyframeAnimation(keyPath: "opacity")
-            let start = kind == .dismiss || wasDismissing ? currentOpacity : 1
+            let start: Float = kind == .dismiss || currentOpacity == 0 ? 1 : currentOpacity
             // Give the silhouette a head start before revealing full-width
             // content. Reversals continue from the opacity already on screen.
-            animation.values = kind == .dismiss ? [start, 1] : [start, start, 0]
-            animation.keyTimes = kind == .dismiss ? [0, 1] : [0, 0.625, 1]
-            animation.duration = kind == .dismiss ? 0.08 : 0.40
+            animation.values = [start, start, 0]
+            animation.keyTimes = kind == .dismiss ? [0, 0.65, 1] : [0, 0.625, 1]
+            animation.duration = 0.40
             animation.calculationMode = .linear
-            animation.timingFunctions = kind == .dismiss
-                ? [CAMediaTimingFunction(name: .easeOut)]
-                : [CAMediaTimingFunction(name: .linear), CAMediaTimingFunction(name: .easeOut)]
-            contentCover.opacity = kind == .dismiss ? 1 : 0
+            animation.timingFunctions = [CAMediaTimingFunction(name: .linear), CAMediaTimingFunction(name: .easeOut)]
+            contentCover.opacity = 0
             contentCover.add(animation, forKey: "notch.opacity")
         }
         CATransaction.commit()

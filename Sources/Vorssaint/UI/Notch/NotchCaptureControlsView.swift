@@ -25,7 +25,7 @@ struct NotchCaptureControlsView: View {
                                     active: options.selectedTool == tool) { options.select(tool) }
                 }
             }
-            if options.selectedTool == .recording {
+            if options.selectedTool.capturesAudio {
                 NotchRecordingAudioOptions(options: options.recorderAudio)
             }
         }

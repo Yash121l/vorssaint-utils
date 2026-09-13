@@ -666,6 +666,19 @@ enum DefaultsKey {
     static let notchQuickPanel = "notchQuickPanel"
     static let notchAppPanel = "notchAppPanel"
     static let notchHoverExpands = "notchHoverExpands"
+    static let notchGesturesEnabled = "notchGesturesEnabled"
+    static let notchKeyboardLight = "notchKeyboardLight"
+    static let notchNotificationsEnabled = "notchNotificationsEnabled"
+    static let notchDismissNativeNotifications = "notchDismissNativeNotifications"
+    static let notchTimerEnabled = "notchTimerEnabled"
+    static let notchCameraEnabled = "notchCameraEnabled"
+    static let notchAccessoriesEnabled = "notchAccessoriesEnabled"
+    static let notchLyricsEnabled = "notchLyricsEnabled"
+    static let notchLyricsOnline = "notchLyricsOnline"
+    static let notchQueueEnabled = "notchQueueEnabled"
+    static let notchDownloadsEnabled = "notchDownloadsEnabled"
+    static let notchDownloadsFolderBookmark = "notchDownloadsFolderBookmark"
+    static let notchCalendarEnabled = "notchCalendarEnabled"
     static let notchEnabled = "notchEnabled"
     static let notchDisplay = "notchDisplay"
     static let notchOpenOnHover = "notchOpenOnHover"
@@ -1091,6 +1104,18 @@ enum Defaults {
         DefaultsKey.notchQuickPanel: true,
         DefaultsKey.notchAppPanel: true,
         DefaultsKey.notchHoverExpands: false,
+        DefaultsKey.notchGesturesEnabled: false,
+        DefaultsKey.notchKeyboardLight: false,
+        DefaultsKey.notchNotificationsEnabled: false,
+        DefaultsKey.notchDismissNativeNotifications: false,
+        DefaultsKey.notchTimerEnabled: false,
+        DefaultsKey.notchCameraEnabled: false,
+        DefaultsKey.notchAccessoriesEnabled: false,
+        DefaultsKey.notchCalendarEnabled: false,
+        DefaultsKey.notchLyricsEnabled: false,
+        DefaultsKey.notchLyricsOnline: false,
+        DefaultsKey.notchQueueEnabled: false,
+        DefaultsKey.notchDownloadsEnabled: false,
         DefaultsKey.notchEnabled: false,
         DefaultsKey.notchDisplay: NotchDisplay.automatic.rawValue,
         DefaultsKey.notchOpenOnHover: true,

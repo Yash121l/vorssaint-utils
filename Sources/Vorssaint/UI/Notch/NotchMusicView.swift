@@ -7,15 +7,24 @@ struct NotchMusicView: View {
     var compact = true
     @ObservedObject private var service = NotchMusicService.shared
     @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var features = FeatureRuntime.shared
+    @AppStorage(DefaultsKey.notchLyricsEnabled) private var lyricsEnabled = false
+    @AppStorage(DefaultsKey.notchQueueEnabled) private var queueEnabled = false
+    @State private var extra: MusicExtra?
+    private enum MusicExtra { case lyrics, queue }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var text: RadialMenuFeatureStrings { FeatureStrings.radialMenu(l10n.language) }
+    /// The cover's own colour, used for its halo and for the moving parts that
+    /// belong to this track. Neutral covers keep the panel white.
+    private var accent: Color { service.artworkTint?.color ?? .white }
+    private var halo: Color { service.artworkTint?.color ?? .clear }
 
     var body: some View {
         VStack(spacing: 12) {
             if let playback = service.playback {
                 ViewThatFits(in: .vertical) {
-                    player(playback).fixedSize(horizontal: false, vertical: true)
-                    ScrollView { player(playback).fixedSize(horizontal: false, vertical: true) }
+                    musicContent(playback).fixedSize(horizontal: false, vertical: true)
+                    ScrollView { musicContent(playback).fixedSize(horizontal: false, vertical: true) }
                         .scrollIndicators(.automatic)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -39,6 +48,57 @@ struct NotchMusicView: View {
             if AppFeature.mixer.isAvailable { NotchAudioControls(inline: true) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear { syncExtras() }
+        .onChange(of: extra) { syncExtras() }
+        .onChange(of: service.playback.map(NotchMusicIdentity.init)) { syncExtras() }
+        .onChange(of: features.revision) { syncExtras() }
+        .onChange(of: lyricsEnabled) { syncExtras() }
+        .onChange(of: queueEnabled) { syncExtras() }
+        .onDisappear {
+            NotchService.shared.setMusicDetailsVisible(false)
+            NotchLyricsService.shared.hide()
+            service.setQueueVisible(false)
+        }
+    }
+
+    private func syncExtras() {
+        let showingLyrics = extra == .lyrics && lyricsEnabled && AppFeature.notchLyrics.isAvailable
+        let showingQueue = extra == .queue && queueEnabled && AppFeature.notchQueue.isAvailable
+        NotchService.shared.setMusicDetailsVisible(service.playback != nil && (showingLyrics || showingQueue))
+        NotchLyricsService.shared.update(playback: service.playback, visible: extra == .lyrics)
+        service.setQueueVisible(extra == .queue)
+    }
+
+    private func musicContent(_ playback: NotchPlayback) -> some View {
+        VStack(spacing: 12) {
+            player(playback)
+            if (lyricsEnabled && AppFeature.notchLyrics.isAvailable) || (queueEnabled && AppFeature.notchQueue.isAvailable) {
+                HStack(spacing: 8) {
+                    if lyricsEnabled, AppFeature.notchLyrics.isAvailable {
+                        extraButton(.lyrics, title: FeatureStrings.notchMusicExtras(l10n.language).lyrics, symbol: "quote.bubble")
+                    }
+                    if queueEnabled, AppFeature.notchQueue.isAvailable {
+                        extraButton(.queue, title: FeatureStrings.notchMusicExtras(l10n.language).queue, symbol: "list.bullet")
+                    }
+                    Spacer(minLength: 0)
+                }
+                if extra == .lyrics, lyricsEnabled, AppFeature.notchLyrics.isAvailable {
+                    NotchLyricsView(playback: playback)
+                } else if extra == .queue, queueEnabled, AppFeature.notchQueue.isAvailable {
+                    NotchQueueView(playback: playback)
+                }
+            }
+        }
+    }
+
+    private func extraButton(_ target: MusicExtra, title: String, symbol: String) -> some View {
+        Button { extra = extra == target ? nil : target } label: {
+            Label(title, systemImage: symbol)
+                .font(.caption.weight(.medium)).padding(.horizontal, 10).padding(.vertical, 7)
+                .background(.white.opacity(extra == target ? 0.14 : 0.05), in: Capsule())
+        }
+        .buttonStyle(NotchButtonStyle(cornerRadius: 16))
+        .accessibilityAddTraits(extra == target ? [.isSelected] : [])
     }
 
     private func player(_ playback: NotchPlayback) -> some View {
@@ -46,22 +106,32 @@ struct NotchMusicView: View {
             Button { RadialNowPlayingApplication.open(playback.track) } label: {
                 NotchArtwork(image: service.artwork, size: compact ? 112 : 140)
                     .scaleEffect(playback.isPlaying || reduceMotion ? 1 : 0.94)
+                    .shadow(color: halo.opacity(0.42), radius: 20, y: 7)
+                    .shadow(color: halo.opacity(0.2), radius: 42, y: 14)
                     .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: playback.isPlaying)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.45), value: halo)
             }
             .buttonStyle(NotchButtonStyle(cornerRadius: 24))
             .help(text.mediaNowPlaying)
             .accessibilityLabel(text.mediaNowPlaying)
             VStack(alignment: .leading, spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(playback.track.title ?? text.mediaNowPlaying)
-                        .font(.system(size: compact ? 18 : 21, weight: .semibold))
-                        .lineLimit(2).help(playback.track.title ?? text.mediaNowPlaying)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(playback.track.title ?? text.mediaNowPlaying)
+                            .font(.system(size: compact ? 18 : 21, weight: .semibold))
+                            .lineLimit(2).help(playback.track.title ?? text.mediaNowPlaying)
+                        Spacer(minLength: 0)
+                        if playback.isPlaying {
+                            NotchEqualizerBars(bars: 3, barWidth: 2.5, height: 12, tint: accent)
+                                .transition(.opacity)
+                        }
+                    }
                     Text(service.commandFailed ? l10n.s.monitorUnavailable : playback.track.artist ?? playback.track.album ?? text.mediaNowPlaying)
                         .font(.system(size: 13))
                         .foregroundStyle(service.commandFailed ? .orange : .secondary)
                         .lineLimit(1)
                 }
-                NotchMusicTimeline(playback: playback, service: service)
+                NotchMusicTimeline(playback: playback, service: service, tint: accent)
                 transport(playback).frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -76,6 +146,8 @@ struct NotchMusicView: View {
                 Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.black)
+                    .contentTransition(.symbolEffect(.replace))
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: playback.isPlaying)
                     .frame(width: 44, height: 44)
                     .background(.white, in: Circle())
                     .contentShape(Circle())
@@ -106,6 +178,7 @@ struct NotchMusicView: View {
 private struct NotchMusicTimeline: View {
     let playback: NotchPlayback
     let service: NotchMusicService
+    var tint: Color = .white
     @ObservedObject private var l10n = L10n.shared
     @State private var scrubPosition: Double?
     @State private var scrubTrack: RadialNowPlayingSnapshot?
@@ -115,25 +188,28 @@ private struct NotchMusicTimeline: View {
         if playback.duration > 0 {
             TimelineView(.animation(minimumInterval: 1, paused: !playback.isPlaying)) { context in
                 let position = scrubPosition ?? playback.position(at: context.date)
-                VStack(spacing: 2) {
+                VStack(spacing: 3) {
                     if playback.canSeek {
-                        Slider(value: Binding(get: { position }, set: {
-                            if scrubTrack == nil { scrubTrack = playback.track }
-                            scrubPosition = $0
-                        }), in: 0...playback.duration, onEditingChanged: { editing in
-                            if editing {
-                                pendingSeek = nil
-                            } else if let scrubPosition, let scrubTrack {
-                                service.seek(to: scrubPosition, in: scrubTrack)
-                                pendingSeek = UUID()
-                            }
-                        })
-                        .controlSize(.mini)
-                        .accessibilityLabel(FeatureStrings.notch(l10n.language).playbackPosition)
-                        .accessibilityValue(timestamp(position))
+                        NotchLevelSlider(
+                            value: Binding(get: { position }, set: {
+                                if scrubTrack == nil { scrubTrack = playback.track }
+                                scrubPosition = $0
+                            }),
+                            label: FeatureStrings.notch(l10n.language).playbackPosition,
+                            range: 0...playback.duration,
+                            tint: tint,
+                            valueLabel: timestamp(position),
+                            onEditingChanged: { editing in
+                                if editing {
+                                    pendingSeek = nil
+                                } else if let scrubPosition, let scrubTrack {
+                                    service.seek(to: scrubPosition, in: scrubTrack)
+                                    pendingSeek = UUID()
+                                }
+                            })
+                            .frame(height: 10)
                     } else {
-                        ProgressView(value: position, total: playback.duration)
-                            .progressViewStyle(.linear).tint(.white.opacity(0.7))
+                        NotchMeter(value: position / playback.duration, height: 6, tint: tint)
                     }
                     HStack {
                         Text(timestamp(position))

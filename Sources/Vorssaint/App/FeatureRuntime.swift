@@ -210,6 +210,7 @@ final class FeatureRuntime: ObservableObject {
             ClipboardAutoClearService.shared.syncWithPreferences()
         },
         .mediaTools: {
+            NotchFileToolsService.shared.syncWithPreferences()
             guard !AppFeature.mediaTools.isAvailable else { return }
             MediaService.shared.cancel()
             ScreenRecorderService.shared.closeEditors(ownedBy: .mediaTools)
@@ -217,7 +218,10 @@ final class FeatureRuntime: ObservableObject {
         .pastePlain: { PastePlainService.shared.syncWithPreferences() },
         .finderCutPaste: { FinderCutPaste.shared.syncWithPreferences() },
         .finderRename: { FinderRenameService.shared.syncWithPreferences() },
-        .shelf: { ShelfService.shared.syncWithPreferences() },
+        .shelf: {
+            ShelfService.shared.syncWithPreferences()
+            NotchFileToolsService.shared.syncWithPreferences()
+        },
         .urlCleaner: { URLCleanerService.shared.syncWithPreferences() },
         .diskImageInstaller: { DiskImageInstallerService.shared.syncWithPreferences() },
         .mixer: {
@@ -256,6 +260,33 @@ final class FeatureRuntime: ObservableObject {
         .cameraPreview: { CameraPreviewService.shared.syncWithPreferences() },
         .radialMenu: { RadialMenuService.shared.syncWithPreferences() },
         .notch: { NotchService.shared.syncWithPreferences() },
+        .notchGestures: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+        },
+        .notchTimer: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchTimerService.shared.stop() }
+        },
+        .notchAccessories: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchAccessoryService.shared.stop() }
+        },
+        .notchLyrics: {
+            if !NotchLyricsSupport.isEnabled() { NotchLyricsService.shared.stop() }
+        },
+        .notchQueue: { NotchMusicService.shared.syncQueuePreference() },
+        .notchNotifications: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchNotificationService.shared.stop() }
+        },
+        .notchDownloads: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchDownloadService.shared.stop() }
+        },
+        .notchCalendar: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchCalendarService.shared.stop() }
+        },
         .scratchpad: { ScratchpadService.shared.syncWithPreferences() },
         .commandBar: { CommandBarService.shared.syncWithPreferences() },
         .cleaner: {

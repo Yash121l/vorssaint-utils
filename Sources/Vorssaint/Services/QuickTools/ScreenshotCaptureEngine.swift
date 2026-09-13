@@ -106,8 +106,10 @@ enum ScreenshotCaptureEngine {
             ownWindowIDs: ownWindowIDs,
             protectedWindowIDs: protectedWindowIDs)
         // The notch has its own explicit recording preference, independent
-        // of hiding the app's ordinary windows and capture tools.
-        if NotchSupport.isEnabled() {
+        // of hiding the app's ordinary windows and capture tools. During an
+        // active on-screen selection it stays excluded regardless, since it is
+        // then part of the capture interface and what sits behind it is wanted.
+        if NotchSupport.isEnabled(), !ScreenshotSelectionController.isSessionOnScreen {
             excludedIDs.subtract(NotchService.shared.captureVisibleWindowIDs)
         }
         return content.windows.filter { excludedIDs.contains($0.windowID) }

@@ -5,24 +5,94 @@ import AppKit
 import SwiftUI
 
 /// Feedback is local to a visible control. No recurring work is needed.
+/// The pointer lifts a control slightly and a press settles it back, which is
+/// what makes the panel feel physical rather than painted on.
 struct NotchButtonStyle: ButtonStyle {
     var cornerRadius: CGFloat = 10
+    var lifts = true
     @State private var hovered = false
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
+        let active = enabled && hovered
         configuration.label
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.white.opacity(enabled && hovered ? 0.07 : 0))
+                    .fill(.white.opacity(active ? 0.09 : 0))
                     .allowsHitTesting(false)
             }
-            .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.4)
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
-            .animation(reduceMotion ? nil : .smooth(duration: 0.16), value: configuration.isPressed)
-            .animation(.easeOut(duration: 0.14), value: hovered)
+            .opacity(enabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
+            .scaleEffect(reduceMotion || !lifts ? 1
+                         : configuration.isPressed ? 0.965 : (active ? 1.022 : 1))
+            .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.7),
+                       value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.75), value: hovered)
             .onHover { hovered = $0 }
+    }
+}
+
+extension NotchArtworkTint {
+    var color: Color { Color(.sRGB, red: red, green: green, blue: blue, opacity: 1) }
+}
+
+/// Bars that rise and fall while something is playing — the one moving thing
+/// in the resting notch. Purely decorative, so it is hidden from assistive
+/// technology, holds still when motion is reduced and stops dead when paused.
+struct NotchEqualizerBars: View {
+    var isPlaying = true
+    var bars = 4
+    var barWidth: CGFloat = 2.5
+    var height: CGFloat = 14
+    var tint: Color = .white
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var animates: Bool { isPlaying && !reduceMotion }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !animates)) { context in
+            HStack(alignment: .center, spacing: barWidth * 0.85) {
+                ForEach(0..<max(1, bars), id: \.self) { index in
+                    Capsule(style: .continuous)
+                        .fill(tint)
+                        .frame(width: barWidth,
+                               height: barHeight(index, at: context.date.timeIntervalSinceReferenceDate))
+                }
+            }
+            .frame(height: height)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func barHeight(_ index: Int, at phase: Double) -> CGFloat {
+        guard animates else { return barWidth }
+        let center = Double(max(1, bars) - 1) / 2
+        let distance = abs(Double(index) - center) / max(1, center)
+        let envelope = pow(1 - distance, 1.5)
+        let wave = (sin(phase * (5.2 + Double(index) * 0.61) + Double(index) * 1.7) + 1) / 2
+        return max(barWidth, height * (0.12 + envelope * (0.25 + 0.63 * wave)))
+    }
+}
+
+/// A level readout in the same language as the notch's sliders, instead of the
+/// thin system bar, so every meter in the panel matches.
+struct NotchMeter: View {
+    let value: Double
+    var height: CGFloat = 5
+    var tint: Color = .white
+
+    var body: some View {
+        let fraction = value.isFinite ? min(1, max(0, value)) : 0
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous).fill(.white.opacity(0.14))
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.9))
+                    .frame(width: max(fraction > 0 ? height : 0, proxy.size.width * fraction))
+            }
+        }
+        .frame(height: height)
+        .accessibilityHidden(true)
     }
 }
 
@@ -31,14 +101,17 @@ struct NotchIconButton: View {
     let title: String
     var selected = false
     let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(selected ? .white : .white.opacity(0.55))
+                .contentTransition(.symbolEffect(.replace))
+                .animation(reduceMotion ? nil : .smooth(duration: 0.24), value: symbol)
                 .frame(width: 28, height: 28)
-                .background(.white.opacity(selected ? 0.1 : 0),
+                .background(.white.opacity(selected ? 0.12 : 0),
                             in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }

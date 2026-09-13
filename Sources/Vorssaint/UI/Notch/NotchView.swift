@@ -8,9 +8,11 @@ struct NotchView: View {
     @ObservedObject var service: NotchService
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var launcher = QuickLauncherService.shared
     @Environment(\.colorSchemeContrast) private var contrast
     @State private var draggingModule: NotchModule?
     private var text: NotchStrings { FeatureStrings.notch(l10n.language) }
+    private var idleLocale: Locale { Locale(identifier: l10n.language.rawValue) }
 
     var body: some View {
         surface
@@ -44,25 +46,36 @@ struct NotchView: View {
             Label(text.dropHint, systemImage: "tray.and.arrow.down")
                 .font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
                 .frame(maxWidth: .infinity, minHeight: 52)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(.white.opacity(0.24),
+                                      style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                        .allowsHitTesting(false)
+                }
+                .padding(.horizontal, 18)
                 .padding(.top, service.geometry.safeContentTop)
         } else if let notice = service.notice {
             Button {
-                service.open(notice.event == .clipboard ? .clipboard : .controls)
+                service.activateNotice(notice)
             } label: {
-                NotchNoticeView(notice: notice)
-                    .padding(.horizontal, 20)
-                    .padding(.top, service.geometry.safeContentTop)
-                    .padding(.bottom, 14)
+                NotchNoticeView(notice: notice, geometry: service.geometry)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(notice.title) \(notice.detail)")
+            .accessibilityLabel(notice.accessibilityText)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { service.activateNotice(notice) }
             .accessibilityHint(text.open)
             .transition(.opacity)
         } else if service.peeking {
             navigation.padding(.horizontal, NotchLayout.horizontalInset).padding(.top, service.geometry.safeContentTop)
-        } else if service.hasMusicActivity {
-            NotchMusicStrip(service: service)
+        } else if let activity = service.compactActivity {
+            switch activity {
+            case .timer: NotchTimerStrip(service: service)
+            case .downloads: NotchDownloadStrip(service: service)
+            case .music: NotchMusicStrip(service: service)
+            }
         } else {
             compact
                 .transition(.opacity)
@@ -82,7 +95,13 @@ struct NotchView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 5))
                             }
                         case .battery: Image(systemName: "battery.100percent").font(.system(size: 12))
-                        case .controls: Image(systemName: "slider.horizontal.3").font(.system(size: 12))
+                        case .clock:
+                            TimelineView(.everyMinute) { context in
+                                Text(context.date, format: .dateTime.hour().minute())
+                                    .font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                                    .environment(\.locale, idleLocale)
+                            }
+                            .minimumScaleFactor(0.7).lineLimit(1)
                         case .none: EmptyView()
                         }
                     }.frame(width: service.geometry.restingWingWidth)
@@ -90,12 +109,21 @@ struct NotchView: View {
                     Group {
                         switch service.idleContent {
                         case .music:
-                            if music.playback?.isPlaying == true { Image(systemName: "waveform").foregroundStyle(.mint) }
+                            if music.playback?.isPlaying == true {
+                                NotchEqualizerBars(bars: 3, barWidth: 2, height: 11,
+                                                   tint: music.artworkTint?.color ?? .white)
+                            }
                         case .battery:
                             if let percent = service.power.chargePercent {
                                 Text("\(percent)%").font(.system(size: 9, weight: .medium)).monospacedDigit()
                             }
-                        case .controls: Image(systemName: "chevron.down").font(.system(size: 9))
+                        case .clock:
+                            TimelineView(.everyMinute) { context in
+                                Text(context.date, format: .dateTime.weekday(.abbreviated).day())
+                                    .font(.system(size: 9, weight: .medium))
+                                    .environment(\.locale, idleLocale)
+                            }
+                            .minimumScaleFactor(0.7).lineLimit(1)
                         case .none: EmptyView()
                         }
                     }.frame(width: service.geometry.restingWingWidth)
@@ -115,7 +143,7 @@ struct NotchView: View {
     private var expanded: some View {
         VStack(spacing: NotchLayout.spacing) {
             header.zIndex(1)
-            if service.showingAppPanel || [.files, .music, .clipboard].contains(service.selected)
+            if service.showingAppPanel || [.files, .music, .clipboard, .calendar, .notifications, .timer, .camera, .downloads].contains(service.selected)
                 || (service.selected == .captures && service.captureContent == nil) {
                 content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else if [.controls, .system, .tools].contains(service.selected), service.selectedMetric == nil {
@@ -157,6 +185,13 @@ struct NotchView: View {
             } else {
                 navigation.frame(maxWidth: .infinity, alignment: .leading)
             }
+            if service.selected == .tools, !service.showingAppPanel, service.selectedMetric == nil,
+               !service.modules.isEmpty, launcher.activeUtility == nil {
+                NotchIconButton(symbol: launcher.isEditing ? "checkmark" : "slider.horizontal.3",
+                                title: text.customizeTools, selected: launcher.isEditing) {
+                    withAnimation(.easeOut(duration: 0.15)) { launcher.isEditing.toggle() }
+                }
+            }
             Menu {
                 Button {
                     service.pinned.toggle()
@@ -184,38 +219,44 @@ struct NotchView: View {
     }
 
     private var navigation: some View {
-        HStack(spacing: 2) {
-            ForEach(Array(service.modules.enumerated()), id: \.element) { index, module in
-                PanelReorderableItem(item: module, isEnabled: true,
-                    order: Binding(get: { service.modules }, set: { modules in
-                        UserDefaults.standard.set(modules.map(\.rawValue).joined(separator: ","), forKey: DefaultsKey.notchModuleOrder)
-                    }), dragging: $draggingModule) {
-                    Button { service.select(module) } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: module.symbol)
-                                .font(.system(size: 14, weight: .medium))
-                            if service.selected == module, !service.peeking,
-                               service.geometry.expandedWidth >= 440 || service.modules.count <= 5 {
-                                Text(module.navigationTitle(l10n.language))
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .lineLimit(1).minimumScaleFactor(0.9)
-                                    .frame(width: 86, alignment: .leading)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 2) {
+                    ForEach(Array(service.modules.enumerated()), id: \.element) { index, module in
+                        PanelReorderableItem(item: module, isEnabled: true,
+                            order: Binding(get: { service.modules }, set: { modules in
+                                UserDefaults.standard.set(modules.map(\.rawValue).joined(separator: ","), forKey: DefaultsKey.notchModuleOrder)
+                            }), dragging: $draggingModule) {
+                            Button { service.select(module) } label: {
+                                HStack(spacing: 7) {
+                                    Image(systemName: module.symbol)
+                                        .font(.system(size: 14, weight: .medium))
+                                    if service.selected == module, !service.peeking,
+                                       service.geometry.expandedWidth >= 440 || service.modules.count <= 5 {
+                                        Text(module.navigationTitle(l10n.language))
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .lineLimit(1).minimumScaleFactor(0.85)
+                                            .frame(maxWidth: 110, alignment: .leading)
+                                    }
+                                }
+                                .foregroundStyle(service.selected == module ? .white : .white.opacity(0.65))
+                                .padding(.horizontal, service.selected == module ? 10 : 6)
+                                .frame(minWidth: 26, minHeight: 32)
+                                .background(.white.opacity(service.selected == module ? 0.12 : 0), in: Capsule())
+                                .contentShape(Capsule())
                             }
-                        }
-                        .foregroundStyle(service.selected == module ? .white : .white.opacity(0.65))
-                        .padding(.horizontal, service.selected == module ? 10 : 6)
-                        .frame(minWidth: 26, minHeight: 32)
-                        .background(.white.opacity(service.selected == module ? 0.12 : 0), in: Capsule())
-                        .contentShape(Capsule())
+                            .buttonStyle(NotchButtonStyle(cornerRadius: 16))
+                            .keyboardShortcut(index < 9 ? KeyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command) : nil)
+                            .help(module.title(l10n.language) + (index < 9 ? "  ⌘\(index + 1)" : ""))
+                            .accessibilityLabel(module.title(l10n.language))
+                            .accessibilityAddTraits(service.selected == module ? .isSelected : [])
+                            .accessibilityIdentifier("notch.module.\(module.rawValue)")
+                        }.id(module)
                     }
-                    .buttonStyle(NotchButtonStyle(cornerRadius: 16))
-                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
-                    .help("\(module.title(l10n.language))  ⌘\(index + 1)")
-                    .accessibilityLabel(module.title(l10n.language))
-                    .accessibilityAddTraits(service.selected == module ? .isSelected : [])
-                    .accessibilityIdentifier("notch.module.\(module.rawValue)")
                 }
-            }
+            }.scrollIndicators(.hidden)
+                .onAppear { proxy.scrollTo(service.selected) }
+                .onChange(of: service.selected) { _, selected in proxy.scrollTo(selected) }
         }
         .frame(height: NotchLayout.navigationHeight)
     }
@@ -229,6 +270,11 @@ struct NotchView: View {
             NotchEmptyView(symbol: "slider.horizontal.3", message: text.empty)
         } else {
             switch service.selected {
+            case .timer: NotchTimerView()
+            case .camera: NotchCameraView(size: service.contentSize)
+            case .notifications: NotchNotificationsView()
+            case .downloads: NotchDownloadsView()
+            case .calendar: NotchCalendarView()
             case .controls: NotchControlsView(service: service)
             case .mixer: MixerSection(collapsible: false)
             case .music: NotchMusicView(compact: service.geometry.usesCompactContent)
@@ -283,35 +329,6 @@ struct NotchShape: Shape {
     }
 }
 
-struct NotchNoticeView: View {
-    let notice: NotchNotice
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: notice.symbol)
-                .font(.system(size: 23, weight: .medium))
-                .frame(width: 32)
-
-            VStack(alignment: .leading, spacing: 7) {
-                HStack {
-                    Text(notice.title).lineLimit(1)
-                    Spacer(minLength: 4)
-                    Text(notice.detail).monospacedDigit()
-                }
-                .font(.system(size: 12, weight: .medium))
-                if let level = notice.level {
-                    ProgressView(value: min(1, max(0, level)))
-                        .progressViewStyle(.linear)
-                        .tint(.white)
-                }
-            }
-        }
-        .foregroundStyle(.white)
-        .frame(height: 40)
-        .transaction { $0.animation = nil; $0.disablesAnimations = true }
-        .accessibilityElement(children: .combine)
-    }
-}
-
 extension NotchModule: PanelOrderItem {
     func navigationTitle(_ language: AppLanguage) -> String {
         let text = FeatureStrings.notch(language)
@@ -325,6 +342,11 @@ extension NotchModule: PanelOrderItem {
 
     func title(_ language: AppLanguage) -> String {
         switch self {
+        case .timer: return FeatureStrings.notchActivities(language).timer
+        case .camera: return FeatureStrings.notchActivities(language).camera
+        case .notifications: return FeatureStrings.notchNotifications(language).title
+        case .downloads: return FeatureStrings.notchFiles(language).downloadsTitle
+        case .calendar: return FeatureStrings.notchCalendar(language).title
         case .controls: return FeatureStrings.notch(language).controls
         case .mixer: return L10n.shared.s.mixerSection
         case .music: return FeatureStrings.radialMenu(language).mediaNowPlaying

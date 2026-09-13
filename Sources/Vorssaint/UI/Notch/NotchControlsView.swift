@@ -97,6 +97,7 @@ struct NotchAudioControls: View {
     var inline = false
     @ObservedObject private var mixer = AppVolumeMixer.shared
     @ObservedObject private var l10n = L10n.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var level: Double? { mixer.systemOutputVolume.map { mixer.systemOutputMuted == true ? 0 : $0 } }
     private var deviceName: String {
         mixer.outputDevices.first(where: { $0.uid == mixer.currentOutputDeviceUID })?.name ?? l10n.s.mixerSystemOutputTitle
@@ -117,7 +118,12 @@ struct NotchAudioControls: View {
                         mute
                         Text(FeatureStrings.notch(l10n.language).volume).lineLimit(1)
                         Spacer(minLength: 0)
-                        if let level { Text("\(Int((level * 100).rounded()))%").monospacedDigit() }
+                        if let level {
+                            Text("\(Int((level * 100).rounded()))%")
+                                .monospacedDigit()
+                                .contentTransition(.numericText())
+                                .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: level)
+                        }
                     }
                     .font(.system(size: 12, weight: .semibold))
                     slider
@@ -139,7 +145,11 @@ struct NotchAudioControls: View {
             if let muted = mixer.systemOutputMuted { mixer.requestOutputAdjustment(muted: !muted) }
         } label: {
             Image(systemName: mixer.systemOutputMuted == true ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                .font(.system(size: 12, weight: .medium)).frame(width: 18, height: 18)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(mixer.systemOutputMuted == true ? Color.red : Color.white)
+                .contentTransition(.symbolEffect(.replace))
+                .animation(reduceMotion ? nil : .smooth(duration: 0.24), value: mixer.systemOutputMuted)
+                .frame(width: 18, height: 18)
                 .contentShape(Rectangle())
         }
         .buttonStyle(NotchButtonStyle(cornerRadius: 6))
@@ -191,6 +201,7 @@ struct NotchAudioControls: View {
 private struct NotchBrightnessControls: View {
     @ObservedObject private var service = BrightnessService.shared
     @ObservedObject private var l10n = L10n.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedID: CGDirectDisplayID?
     private var displays: [BrightnessDisplay] { service.displays.filter { $0.isActive && $0.method != nil } }
     private var display: BrightnessDisplay? {
@@ -203,7 +214,12 @@ private struct NotchBrightnessControls: View {
                 Label(FeatureStrings.notch(l10n.language).brightness, systemImage: "sun.max.fill")
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                if let display { Text("\(BrightnessSupport.wholePercent(display.brightness))%").monospacedDigit() }
+                if let display {
+                    Text("\(BrightnessSupport.wholePercent(display.brightness))%")
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: display.brightness)
+                }
             }
             .font(.system(size: 12, weight: .semibold))
             if let display {
@@ -240,18 +256,45 @@ private struct NotchBrightnessControls: View {
     }
 }
 
+/// How an active tile reads. Recording and a muted microphone are states the
+/// person has to notice, so they carry their own colour instead of the neutral
+/// selection fill.
+enum NotchTileAccent {
+    case selection, alert, awake
+
+    var fill: Color {
+        switch self {
+        case .selection: return .white
+        case .alert: return .red
+        case .awake: return .yellow
+        }
+    }
+
+    var glyph: Color {
+        switch self {
+        case .selection, .awake: return .black
+        case .alert: return .white
+        }
+    }
+}
+
 struct NotchActionTile: View {
     let symbol: String
     let title: String
     var active = false
+    var accent: NotchTileAccent = .selection
     let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Image(systemName: symbol).font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(active ? .mint : .white.opacity(0.85))
+                    .foregroundStyle(active ? accent.glyph : .white.opacity(0.85))
+                    .contentTransition(.symbolEffect(.replace))
                     .frame(width: 40, height: 40)
-                    .background(active ? Color.mint.opacity(0.17) : Color.white.opacity(0.075), in: Circle())
+                    .background(active ? accent.fill : Color.white.opacity(0.075), in: Circle())
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.26), value: active)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.26), value: symbol)
                 Text(title).font(.system(size: 11, weight: .medium))
                     .lineLimit(2).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -272,7 +315,8 @@ private struct NotchAwakeButton: View {
     @ObservedObject private var l10n = L10n.shared
     var body: some View {
         NotchActionTile(symbol: service.isActive ? "cup.and.saucer.fill" : "cup.and.saucer",
-                        title: l10n.s.keepAwakeTitle, active: service.isActive, action: service.toggle)
+                        title: l10n.s.keepAwakeTitle, active: service.isActive,
+                        accent: .awake, action: service.toggle)
     }
 }
 
@@ -282,7 +326,7 @@ private struct NotchMicButton: View {
     var body: some View {
         NotchActionTile(symbol: service.isMuted ? "mic.slash.fill" : "mic.fill",
                         title: service.isMuted ? l10n.s.micUnmuteName : l10n.s.micMuteName,
-                        active: service.isMuted, action: service.toggle)
+                        active: service.isMuted, accent: .alert, action: service.toggle)
     }
 }
 
@@ -293,7 +337,7 @@ private struct NotchRecorderButton: View {
     var body: some View {
         NotchActionTile(symbol: recorder.isRecording ? "stop.circle.fill" : "record.circle",
                         title: FeatureStrings.recorder(l10n.language).pageTitle,
-                        active: recorder.isRecording) {
+                        active: recorder.isRecording, accent: .alert) {
             service.perform { recorder.toggle() }
         }
     }

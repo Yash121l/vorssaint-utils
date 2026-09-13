@@ -29,7 +29,14 @@ struct QuickLauncherView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            header
+            // In the notch the surrounding chrome already titles the panel and
+            // offers the customize toggle, so the launcher's own header would
+            // only add an empty band. It stays for the floating panel and for
+            // a hosted utility, which needs its back control.
+            if notchSize == nil || launcher.activeUtility != nil { header }
+            if notchSize != nil, launcher.activeUtility == nil, launcher.isEditing {
+                editHint
+            }
             if let utility = launcher.activeUtility {
                 hostedUtility(utility)
             } else if launcher.visibleItems.isEmpty && !launcher.isEditing {
@@ -140,14 +147,18 @@ struct QuickLauncherView: View {
                 }
             }
             if launcher.isEditing, launcher.activeUtility == nil {
-                Text(l10n.s.launcherEditHint)
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                editHint
             }
         }
+    }
+
+    private var editHint: some View {
+        Text(l10n.s.launcherEditHint)
+            .font(.system(size: 9.5))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var closeButton: some View {

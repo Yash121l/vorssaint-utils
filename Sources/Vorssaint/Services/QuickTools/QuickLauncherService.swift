@@ -273,9 +273,12 @@ final class QuickLauncherService: ObservableObject {
                 ColorSamplerService.shared.pick()
             }
         case .cameraPreview:
+            let embedded = CameraPreviewService.shared.showInNotchIfEnabled()
             hide()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                CameraPreviewService.shared.show()
+            if !embedded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    CameraPreviewService.shared.show()
+                }
             }
         case .scratchpad:
             hide()

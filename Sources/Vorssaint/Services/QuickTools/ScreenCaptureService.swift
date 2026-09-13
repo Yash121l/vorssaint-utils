@@ -203,7 +203,9 @@ final class ScreenCaptureService: ObservableObject {
             protectedWindowIDs: {
                 var windows = AppFeature.screenshot.isAvailable
                     ? ScreenshotService.shared.protectedWindowIDsForCapture : []
-                if NotchSupport.isEnabled() { windows.formUnion(NotchService.shared.protectedWindowIDs) }
+                // The notch never belongs in the pixels while an area is being
+                // chosen, so what sits behind it is captured cleanly.
+                if NotchSupport.isEnabled() { windows.formUnion(NotchService.shared.captureChromeWindowIDs) }
                 return windows
             },
             purpose: FeatureStrings.screenshot(L10n.shared.language).screenCaptureTitle,

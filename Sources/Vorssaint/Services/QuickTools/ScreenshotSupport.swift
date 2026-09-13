@@ -90,6 +90,11 @@ enum ScreenCaptureTool: String, CaseIterable {
         }
     }
 
+    /// Only the recorder writes sound, so its microphone and system-audio
+    /// choices are the only tool controls that belong under the chooser.
+    /// Every other mode leaves them out entirely, reserving no space for them.
+    var capturesAudio: Bool { self == .recording }
+
     func settingsTitle(_ strings: Strings, language: AppLanguage) -> String {
         switch self {
         case .screenshot: return FeatureStrings.screenshot(language).pageTitle

@@ -11,6 +11,7 @@ struct NotchClipboardView: View {
     @State private var query = ""
     @State private var copiedID: UUID?
     @State private var pinnedOnly = false
+    @FocusState private var searching: Bool
     private var text: ClipboardFeatureStrings { FeatureStrings.clipboard(l10n.language) }
 
     private var entries: [ClipboardHistoryEntry] {
@@ -23,6 +24,7 @@ struct NotchClipboardView: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField(text.search, text: $query).textFieldStyle(.plain)
                     .font(.system(size: 12))
+                    .focused($searching)
                     .accessibilityLabel(text.search)
                 NotchIconButton(symbol: "pin", title: text.pinned, selected: pinnedOnly) {
                     pinnedOnly.toggle()
@@ -33,6 +35,12 @@ struct NotchClipboardView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
             .modifier(NotchControlSurface(cornerRadius: 14))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(.white.opacity(searching ? 0.34 : 0), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .animation(.easeOut(duration: 0.15), value: searching)
             if entries.isEmpty {
                 NotchEmptyView(symbol: pinnedOnly ? "pin" : "doc.on.clipboard",
                                message: query.isEmpty && !pinnedOnly ? text.empty : text.noResults)
@@ -58,7 +66,8 @@ struct NotchClipboardView: View {
                                     }
                                     .contentShape(Rectangle())
                                 }
-                                .buttonStyle(NotchButtonStyle()).help(permissions.accessibility ? text.clickRowShortcut : text.copy)
+                                .buttonStyle(NotchButtonStyle(lifts: false))
+                                .help(permissions.accessibility ? text.clickRowShortcut : text.copy)
                                 NotchIconButton(symbol: copiedID == entry.id ? "checkmark" : "doc.on.doc",
                                                 title: copiedID == entry.id ? text.copied : text.copy) {
                                     history.copy(entry) { copied in if copied { copiedID = entry.id } }
@@ -77,6 +86,14 @@ struct NotchClipboardView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .task(id: copiedID) {
+            // The tick confirms one copy; leaving it on the row forever would
+            // read as a permanent state instead of an answer.
+            guard copiedID != nil else { return }
+            try? await Task.sleep(for: .seconds(1.6))
+            guard !Task.isCancelled else { return }
+            copiedID = nil
+        }
     }
 
     @ViewBuilder private func preview(_ entry: ClipboardHistoryEntry) -> some View {

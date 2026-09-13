@@ -50,6 +50,44 @@ def main():
           + declaration(view, "    private func isActive(_ item: QuickLauncherItem)")
           + "func display(_ item: QuickLauncherItem) -> (String, Bool) { (icon(for: item), isActive(item)) }\n}\n}\n")
 
+    lyrics = "Sources/Vorssaint/Services/Notch/NotchLyricsService.swift"
+    write("NotchLyricsLifecycle.swift", "import Foundation\nimport UniformTypeIdentifiers\n\nextension NotchLyricsContract {\n"
+          + "final class Service {\nvar memory = NotchLyricsMemory()\n"
+          + "var lyrics: NotchLyrics? { memory.lyrics }\nvar track: NotchMusicIdentity? { memory.track }\n"
+          + "var visible = false\nvar online = false\nvar generation = UUID()\nvar state: State = .idle\n"
+          + "var session: Session?\nvar importPanel: Panel?\nvar loads: [NotchMusicIdentity] = []\n"
+          + "func load(_ track: NotchMusicIdentity) { loads.append(track); state = .loading; session = Session() }\n"
+          + declaration(lyrics, "    func update(playback:")
+          + declaration(lyrics, "    func playbackChanged(")
+          + declaration(lyrics, "    func hide()")
+          + declaration(lyrics, "    func stop()")
+          + declaration(lyrics, "    private func cancel()")
+          + declaration(lyrics, "    func importLyrics()")
+          + declaration(lyrics, "    private func canReturnToLyrics(")
+          + "}\n}\n")
+
+    music = "Sources/Vorssaint/Services/Notch/NotchMusicService.swift"
+    write("NotchQueueSelection.swift", "import Foundation\n\nextension NotchQueueContract {\n"
+          + "final class Service {\nvar queueVisible = true\nvar queueRequest: UUID?\n"
+          + "var upcoming: NotchQueueSnapshot?\nvar playback: NotchPlayback?\n"
+          + "var queueActionFailed = false\nvar queueActionPending = false\nvar sendAllowed = true\n"
+          + "var commands: [NotchPlaybackCommand] = []\n"
+          + "func send(_ command: NotchPlaybackCommand) -> Bool { commands.append(command); return sendAllowed && command.message != nil }\n"
+          + declaration(music, "    func playQueued(")
+          + "}\n}\n")
+
+    downloads = "Sources/Vorssaint/Services/Notch/NotchDownloadService.swift"
+    write("NotchDownloadFolderChoice.swift", "import Foundation\n\nextension NotchDownloadFolderChoiceContract {\n"
+          + "final class Service {\nvar chooser: NSOpenPanel?\nvar chooserID = UUID()\n"
+          + "var folderUnavailable = false\nvar syncs = 0\nvar stops = 0\n"
+          + "func syncWithPreferences() { syncs += 1 }\n"
+          + "func stop() { stops += 1; cancelFolderChoice() }\n"
+          + declaration(downloads, "    func chooseFolder()")
+          + declaration(downloads, "    private func folderPickerParent()")
+          + declaration(downloads, "    private func canReturnToDownloads(")
+          + declaration(downloads, "    private func cancelFolderChoice()")
+          + "}\n}\n")
+
     factories = []
     pattern = r"static\s+func\s+(\w+)\s*\(\s*_\s+\w+:\s*AppLanguage\s*\)\s*->"
     for path in sorted((ROOT / "Sources/Vorssaint/Core").glob("*Strings.swift")):

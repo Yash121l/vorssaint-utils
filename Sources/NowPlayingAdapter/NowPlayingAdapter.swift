@@ -33,13 +33,17 @@ private let maximumArtworkBytes = 12 * 1_024 * 1_024
 private var watching = false
 private var previousArtwork: Data?
 
-private func function<T>(_ handle: UnsafeMutableRawPointer?, _ name: String, as type: T.Type) -> T? {
+func function<T>(_ handle: UnsafeMutableRawPointer?, _ name: String, as type: T.Type) -> T? {
     guard let handle, let symbol = dlsym(handle, name) else { return nil }
     return unsafeBitCast(symbol, to: type)
 }
 
-private func emit(_ reply: [String: Any]) {
+private let emissionLock = NSLock()
+
+func emit(_ reply: [String: Any]) {
     let data = (try? JSONSerialization.data(withJSONObject: reply)) ?? Data("{\"error\":\"json\"}".utf8)
+    emissionLock.lock()
+    defer { emissionLock.unlock() }
     FileHandle.standardOutput.write(data)
     FileHandle.standardOutput.write(Data("\n".utf8))
 }
@@ -66,6 +70,7 @@ public func vorssaintNowPlayingGet() {
     group.enter()
     getInfo(queue) { info in
         let info = (info as? [String: Any]) ?? [:]
+        if watching { set("itemIdentifier", info["kMRMediaRemoteNowPlayingInfoContentItemIdentifier"] as? String) }
         for key in ["kMRMediaRemoteNowPlayingInfoTitle",
                     "kMRMediaRemoteNowPlayingInfoArtist",
                     "kMRMediaRemoteNowPlayingInfoAlbum"] {
@@ -148,6 +153,7 @@ public func vorssaintNowPlayingGet() {
     let snapshot = reply
     lock.unlock()
     emit(snapshot)
+    if watching { NotchNativeQueue.observe(snapshot) }
 }
 
 /// One adapter process while a music surface is subscribed. Native change
@@ -175,25 +181,14 @@ public func vorssaintNowPlayingWatch() {
             reader.asyncAfter(deadline: .now() + 0.12, execute: work)
         }
     }
-    var commandBuffer = Data()
+    var commandFramer = NotchPlaybackCommandFramer()
     FileHandle.standardInput.readabilityHandler = { input in
         let data = input.availableData
         if data.isEmpty { exit(0) }
         DispatchQueue.main.async {
-            commandBuffer.append(data)
-            guard commandBuffer.count <= 1024 else {
-                commandBuffer.removeAll()
-                emit(["sent": false])
-                return
-            }
-            while let end = commandBuffer.firstIndex(of: 0x0A) {
-                let command = String(data: commandBuffer[..<end], encoding: .utf8)
-                commandBuffer.removeSubrange(...end)
-                guard let command, let parsed = NotchPlaybackCommand(message: command) else {
-                    emit(["sent": false])
-                    continue
-                }
-                sendPlaybackCommand(parsed)
+            for command in commandFramer.append(data) {
+                guard let command else { emit(["sent": false]); continue }
+                sendPlaybackCommand(command)
             }
         }
     }
@@ -202,6 +197,12 @@ public func vorssaintNowPlayingWatch() {
 }
 
 private func sendPlaybackCommand(_ command: NotchPlaybackCommand) {
+    switch command {
+    case .queue(let request): NotchNativeQueue.configure(request); return
+    case .queueStop: NotchNativeQueue.configure(nil); return
+    case .queuePlay(let selected): NotchNativeQueue.play(selected); return
+    default: break
+    }
     typealias Send = @convention(c) (Int32, CFDictionary?) -> Bool
     typealias Seek = @convention(c) (Double) -> Void
     let handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY)
@@ -219,7 +220,7 @@ private func sendPlaybackCommand(_ command: NotchPlaybackCommand) {
     case .toggle: identifier = 2
     case .next: identifier = 4
     case .previous: identifier = 5
-    case .seek: return
+    case .seek, .queue, .queueStop, .queuePlay: return
     }
     let send = function(handle, "MRMediaRemoteSendCommand", as: Send.self)
     emit(["sent": send?(identifier, nil) ?? false])

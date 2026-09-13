@@ -38,6 +38,7 @@ enum NotchPresentationProbe {
         var maxAnchorError: CGFloat = 0
         var maxContentError: CGFloat = 0
         var canvasChangedSize = false
+        var noticeHeightLimit: CGFloat?
         func sample() {
             samples += 1
             if host.contentCanvasSize != host.panel.frame.size { canvasChangedSize = true }
@@ -48,6 +49,9 @@ enum NotchPresentationProbe {
             }
             if !host.panel.frame.insetBy(dx: -0.5, dy: -0.5).contains(host.visibleFrame) {
                 failures.append("visible silhouette exceeded its backing area")
+            }
+            if let noticeHeightLimit, host.visibleFrame.height > noticeHeightLimit + 0.5 {
+                failures.append("horizontal feedback grew below the menu bar")
             }
         }
         func advance(_ seconds: TimeInterval) {
@@ -79,6 +83,11 @@ enum NotchPresentationProbe {
                 }
             }
         }
+        var updatedGeometry = geometry
+        updatedGeometry.compactSideRoom = 140
+        let beforeMeasurement = host.resizeCount
+        host.present(size: geometry.expanded, geometry: updatedGeometry, animated: true)
+        if host.resizeCount != beforeMeasurement { failures.append("menu measurement restarted an unchanged presentation") }
         advance(0.52)
         if nativeResizes > 2 { failures.append("opening resized its native window every frame: \(nativeResizes)") }
         let openingResizes = nativeResizes
@@ -90,7 +99,7 @@ enum NotchPresentationProbe {
         for _ in 0..<1000 { host.present(size: geometry.notice, geometry: geometry, animated: true) }
         if host.resizeCount != beforeBurst { failures.append("value burst restarted the resize") }
         advance(0.08)
-        if !reduceMotion, host.panel.contentView?.layer?.sublayers?.first(where: { $0.name == "notch.contentCover" })?.opacity != 1 {
+        if !reduceMotion, (host.panel.contentView?.layer?.sublayers?.first(where: { $0.name == "notch.contentCover" })?.presentation()?.opacity ?? 0) < 0.99 {
             failures.append("closing left content visible under the moving clip")
         }
         if host.panel.contentView?.subviews.first?.alphaValue != 1 {
@@ -120,6 +129,23 @@ enum NotchPresentationProbe {
         }
         advance(0.60)
         if host.panel.frame != geometry.frame(for: geometry.collapsed) { failures.append("interrupted motion did not settle") }
+        noticeHeightLimit = geometry.menuBarHeight
+        for notification in [false, true] {
+            let size = geometry.noticeSize(notification: notification)
+            host.present(size: size, geometry: geometry, animated: true, transitionContent: .reveal)
+            advance(0.09)
+            if !reduceMotion, host.visibleFrame.width <= geometry.collapsed.width || host.visibleFrame.width >= size.width {
+                failures.append("horizontal reveal has no intermediate width")
+            }
+            let beforeUpdates = host.resizeCount
+            for _ in 0..<1000 { host.present(size: size, geometry: geometry, animated: true) }
+            if host.resizeCount != beforeUpdates { failures.append("horizontal value updates restarted the resize") }
+            advance(0.55)
+            if host.panel.frame != geometry.frame(for: size) { failures.append("horizontal feedback did not settle") }
+            host.present(size: geometry.collapsed, geometry: geometry, animated: true, transitionContent: .dismiss)
+            advance(0.55)
+        }
+        noticeHeightLimit = nil
         if maxAnchorError > 0.5 { failures.append("window detached from top: \(maxAnchorError)") }
         if canvasChangedSize { failures.append("content canvas escaped its stable native backing area") }
         if maxContentError > 0.5 { failures.append("content detached from window top: \(maxContentError)") }

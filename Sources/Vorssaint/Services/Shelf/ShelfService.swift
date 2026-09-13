@@ -1473,6 +1473,16 @@ final class ShelfService: ObservableObject {
         return true
     }
 
+    /// Generated files reuse the shelf's ordinary acceptance, capacity and thumbnails.
+    @discardableResult
+    func addFiles(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty, urls.allSatisfy(\.isFileURL) else { return false }
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.writeObjects(urls.map { $0 as NSURL })
+        return accept(pasteboard: pasteboard)
+    }
+
     /// The pasteboard representation used when dragging an item out of the shelf.
     func pasteboardWriter(for item: Item) -> NSPasteboardWriting {
         switch item.payload {

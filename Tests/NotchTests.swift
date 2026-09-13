@@ -6,6 +6,15 @@ import CoreGraphics
 
 enum NotchTests {
     static func run(expect: (Bool, String) -> Void) {
+        NotchSliderEditingTests.run(expect: expect)
+        NotchFileToolsTests.run(expect: expect)
+        calendarContracts(expect: expect)
+        NotchNotificationTests.run(expect: expect)
+        NotchNotificationReaderTests.run(expect: expect)
+        NotchGestureTests.run(expect: expect)
+        NotchKeyboardLightTests.run(expect: expect)
+        NotchActivityTests.run(expect: expect)
+        NotchMusicExtrasTests.run(expect: expect)
         let suite = "com.vorssaint.tests.notch"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
@@ -47,9 +56,21 @@ enum NotchTests {
         expect(NotchSupport.watchesMusicActivity(in: defaults), "enabled music activity can detect playback while the panel is closed")
         expect(NotchSupport.showsMusicActivity(isPlaying: true, in: defaults)
                && !NotchSupport.showsMusicActivity(isPlaying: false, in: defaults),
-               "active playback has a horizontal presentation without populating quiet idle")
+               "automatic music presentation requires active playback and clears on pause or stop")
         defaults.set(false, forKey: DefaultsKey.notchShowPlayingMusic)
         expect(!NotchSupport.showsMusicActivity(isPlaying: true, in: defaults), "automatic music presentation can be disabled")
+        defaults.set(NotchIdleContent.music.rawValue, forKey: DefaultsKey.notchIdleContent)
+        expect(NotchSupport.visibleIdleContent(isPlaying: false, in: defaults) == .none
+               && NotchSupport.visibleIdleContent(isPlaying: true, in: defaults) == .music,
+               "explicit idle music has no empty wings while stopped and returns on playback even with automatic music disabled")
+        expect(NotchSupport.idleContent(in: defaults) == .music,
+               "hiding stopped idle music preserves the choice that keeps its playback observer available")
+        let idleGeometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1470, height: 956),
+                                        safeAreaTop: 32, cameraWidth: 180, compactSideRoom: 100)
+        expect(idleGeometry.restingSize(showsContent: NotchSupport.visibleIdleContent(isPlaying: false, in: defaults) != .none)
+               == CGSize(width: 180, height: 32),
+               "stopped idle music shrinks to the physical camera without reserving empty side space")
+        defaults.set(NotchIdleContent.none.rawValue, forKey: DefaultsKey.notchIdleContent)
         defaults.set(true, forKey: DefaultsKey.notchShowPlayingMusic)
         defaults.set("music", forKey: DefaultsKey.notchHiddenModules)
         expect(!NotchSupport.watchesMusicActivity(in: defaults), "hidden music does not keep an activity observer")
@@ -57,10 +78,17 @@ enum NotchTests {
         defaults.set(true, forKey: DefaultsKey.notchMusicActivity)
         expect(NotchSupport.idleContent(in: defaults) == .none, "legacy music preference cannot populate a newly empty idle surface")
         defaults.set(NotchIdleContent.battery.rawValue, forKey: DefaultsKey.notchIdleContent)
-        expect(NotchSupport.idleContent(in: defaults) == .battery, "idle battery is an independent explicit choice")
+        expect(NotchSupport.visibleIdleContent(isPlaying: false, in: defaults) == .battery,
+               "idle battery remains an independent explicit choice when music is stopped")
         defaults.set(false, forKey: AppFeature.monitorPower.availabilityKey)
         expect(NotchSupport.idleContent(in: defaults) == .none, "unavailable battery cannot appear while idle")
         defaults.set(true, forKey: AppFeature.monitorPower.availabilityKey)
+        defaults.set(NotchIdleContent.clock.rawValue, forKey: DefaultsKey.notchIdleContent)
+        expect(NotchSupport.visibleIdleContent(isPlaying: false, in: defaults) == .clock,
+               "the clock is an idle choice with no feature dependency")
+        defaults.set("controls", forKey: DefaultsKey.notchIdleContent)
+        expect(NotchSupport.idleContent(in: defaults) == .none,
+               "the retired controls idle option falls back to nothing")
         defaults.set(NotchIdleContent.none.rawValue, forKey: DefaultsKey.notchIdleContent)
         expect(NotchSupport.modules(in: defaults).contains(.mixer), "the full mixer has a direct destination")
         defaults.set(false, forKey: AppFeature.mixer.availabilityKey)
@@ -86,6 +114,10 @@ enum NotchTests {
                "dragging a capture region retains visual selection feedback")
         expect(ScreenshotSupport.selectionDimAlpha(notchControls: false, isFrozen: true, isDragging: false) == 0.22,
                "the standalone capture chooser keeps its existing contrast")
+        for tool in ScreenCaptureTool.allCases {
+            expect(tool.capturesAudio == (tool == .recording),
+                   "only screen recording shows microphone and system-audio controls: \(tool.rawValue)")
+        }
         expect(!NotchSupport.routes(.clipboard, in: defaults) && !NotchSupport.routes(.capture, in: defaults),
                "notch opt-in does not reveal copied content or move captures")
         defaults.set(true, forKey: DefaultsKey.notchClipboard)
@@ -99,7 +131,7 @@ enum NotchTests {
         expect(!NotchSupport.routesClipboardWindow(in: defaults), "hidden clipboard keeps the ordinary history available")
         expect(!NotchSupport.routes(.clipboard, in: defaults), "hidden module cannot leak an activity")
         defaults.set("system,music,music,unknown", forKey: DefaultsKey.notchModuleOrder)
-        expect(NotchSupport.modules(in: defaults) == [.system, .music, .controls, .mixer, .captures, .files, .tools],
+        expect(NotchSupport.modules(in: defaults) == [.system, .music, .controls, .mixer, .captures, .files, .tools, .downloads],
                "module order ignores unknown ids and duplicates, preserving newly added modules")
         expect(NotchSupport.routesShelf(in: defaults) && NotchSupport.revealsShelfDrag(in: defaults),
                "the enabled notch replaces the file destination and reveals active drags")
@@ -153,7 +185,7 @@ enum NotchTests {
                && restored?[DefaultsKey.notchHapticFeedback] as? Bool == true,
                "backup restores custom dimensions and tactile feedback together")
         expect(AppFeature.notch.settingsDestination.page == .notch, "hub routes to notch settings")
-        expect(!FeatureVisibilitySupport.isPageVisible(.notch, isAvailable: { $0 != .notch }),
+        expect(!FeatureVisibilitySupport.isPageVisible(.notch, isAvailable: { !FeatureVisibilitySupport.features(for: .notch).contains($0) }),
                "notch settings disappear when uninstalled")
 
         for language in AppLanguage.allCases {
@@ -170,6 +202,11 @@ enum NotchTests {
                       CGRect(x: 0, y: 0, width: 640, height: 480)]
         let compact = NotchGeometry(screen: frames[0], safeAreaTop: 32, cameraWidth: 210)
         let spacious = NotchGeometry(screen: frames[0], safeAreaTop: 32, cameraWidth: 210, layout: .spacious)
+        let musicBase = compact.expandedSize(module: .music)
+        let musicDetails = compact.expandedSize(module: .music, musicExtraHeight: 260)
+        expect(musicDetails.width == musicBase.width && musicDetails.height == musicBase.height + 260
+               && compact.screen.contains(compact.frame(for: musicDetails)),
+               "opening lyrics or the queue adds room while preserving width and screen bounds")
         expect(compact.expanded.width >= 440 && spacious.expanded.width > compact.expanded.width,
                "the standard notch has room for side-by-side controls while spacious remains available")
         let idleMusic = compact.expandedSize(module: .music, musicHasContent: false)
@@ -216,7 +253,7 @@ enum NotchTests {
             for notch in [false, true] {
                 let geometry = NotchGeometry(screen: frame, safeAreaTop: notch ? 32 : 0,
                                              cameraWidth: notch ? 210 : 0)
-                for size in [geometry.collapsed, geometry.notice, geometry.expanded] {
+                for size in [geometry.collapsed, geometry.notice, geometry.noticeSize(notification: true), geometry.expanded] {
                     let positioned = geometry.frame(for: size)
                     expect(frame.contains(positioned), "notch fits displays in every coordinate quadrant")
                     expect(positioned.midX == frame.midX, "notch stays centered while morphing")
@@ -226,7 +263,7 @@ enum NotchTests {
                 expect(geometry.musicWingWidth * 2 + geometry.musicCameraGap == geometry.musicStrip.width,
                        "horizontal metadata uses equal wings around the camera")
                 expect(geometry.frame(for: geometry.musicStrip).maxY == frame.maxY - geometry.topInset,
-                       "music activity remains attached to the same top edge")
+                       "the lateral music strip remains attached to the same top edge")
                 expect(geometry.contentSize(for: geometry.expandedSize(module: .music)).height >= 212,
                        "compact music reserves room for metadata, transport, progress and volume together")
                 let quiet = geometry.restingSize(showsContent: false)
@@ -270,16 +307,129 @@ enum NotchTests {
         let constrained = NotchGeometry(screen: menuScreen, safeAreaTop: 32, cameraWidth: 180,
                                         menuBarHeight: 24, compactSideRoom: freeRoom)
         expect(constrained.collapsed.height == 32 && constrained.musicStrip.height == 32,
-               "every passive presentation stays inside the menu bar, without an extra lower lip")
+               "quiet idle and the lateral strip keep the menu bar's height")
         expect(constrained.restingWingWidth == 0,
                "an indicator is omitted when there is not enough room to render it intact")
         let roomy = NotchGeometry(screen: menuScreen, safeAreaTop: 32, cameraWidth: 180,
                                  menuBarHeight: 24, compactSideRoom: 100)
+        let notificationSize = roomy.noticeSize(notification: true)
+        expect(notificationSize.height == roomy.menuBarHeight && roomy.notice.height == notificationSize.height
+               && notificationSize.width > roomy.notice.width,
+               "notifications use wider wings than level feedback without growing below the menu bar")
+        for frame in frames {
+            for notched in [false, true] {
+                for barHeight: CGFloat in [16, 24, 32, 40, 64] {
+                    let geometry = NotchGeometry(screen: frame, safeAreaTop: notched ? 32 : 0,
+                        cameraWidth: notched ? 210 : 0, menuBarHeight: barHeight)
+                    for notification in [false, true] {
+                        let size = geometry.noticeSize(notification: notification)
+                        let wings = geometry.noticeWingWidth(notification: notification)
+                        expect(size.height == geometry.menuBarHeight
+                               && geometry.frame(for: size).minY == frame.maxY - geometry.menuBarHeight,
+                               "every transient notice stays inside the menu bar across display and message types")
+                        expect(wings > 0 && wings * 2 + geometry.noticeCameraGap == size.width,
+                               "notice wings exactly fill their horizontal surface without entering the camera gap")
+                        expect(geometry.noticeCameraGap == (notched ? geometry.cameraWidth : 0),
+                               "screens without a camera have no empty middle spacer")
+                    }
+                }
+            }
+        }
+        let idle = roomy.restingSize(showsContent: false)
+        expect(NotchMotion.duration(from: idle, to: roomy.notice)
+               == NotchMotion.duration(from: idle, to: roomy.expanded),
+               "horizontal reveals use the opening curve even when their height stays unchanged")
+        expect(NotchMotion.duration(from: roomy.notice, to: idle)
+               < NotchMotion.duration(from: idle, to: roomy.notice),
+               "horizontal dismissal remains quicker than opening")
+        let compactMusic = roomy.compactMusicGeometry
+        expect(compactMusic.compactActivityWingWidth == 56
+               && compactMusic.compactActivityCameraGap == roomy.cameraWidth
+               && compactMusic.compactActivitySize.width == roomy.cameraWidth + 112,
+               "compact music reserves full cover wings outside the physical camera")
+        for available: CGFloat in [0, 27, 43, 44, 45, 55, 56, 100, .nan, .infinity] {
+            var tight = roomy
+            tight.compactSideRoom = available
+            let music = tight.compactMusicGeometry
+            expect(!music.compactActivityUsesFooter && music.compactActivitySize.height == roomy.menuBarHeight
+                   && music.compactActivityTopPadding == 0 && music.compactActivityGeometry.topInset == 0,
+                   "compact music never grows or moves below the menu bar when space changes")
+            if available.isFinite && available >= 44 {
+                let cover = min(26, music.menuBarHeight - 6, music.compactActivityWingWidth - 20)
+                expect(cover >= 24 && cover + 20 <= music.compactActivityWingWidth
+                       && music.compactActivityCameraGap == roomy.cameraWidth,
+                       "narrow music wings keep a full cover, inner clearance and outer margin beside the camera")
+            } else {
+                expect(music.compactActivityWingWidth == 0,
+                       "unavailable menu space cannot push music into the physical camera or adjacent menus")
+            }
+        }
+        var moreRoom = roomy
+        moreRoom.compactSideRoom = 200
+        expect(moreRoom.compactMusicGeometry == compactMusic,
+               "menu measurements beyond the music width cannot resize the compact presentation")
+        expect(constrained.compactMusicGeometry.compactActivitySize.height == constrained.menuBarHeight,
+               "crowded music retains the same thin silhouette")
         expect(roomy.musicStrip.width <= 380 && roomy.restingWingWidth == 44,
                "music and idle indicators both respect the same measured menu gap")
         let simulated = NotchGeometry(screen: menuScreen, safeAreaTop: 0, cameraWidth: 0, menuBarHeight: 22)
         expect(simulated.topInset == 0 && simulated.musicStrip.height == 22 && simulated.collapsed.height == 22,
-               "simulated notches do not add a top offset or exceed a shorter menu bar")
+               "ordinary simulated-notch geometry preserves the existing menu-bar placement")
+        let crowdedRooms: [CGFloat?] = [nil, -1, 0, 27, 43, CGFloat.nan, CGFloat.infinity]
+        for available in crowdedRooms {
+            let crowded = NotchGeometry(screen: menuScreen, safeAreaTop: 32, cameraWidth: 180,
+                                        menuBarHeight: 32, compactSideRoom: available)
+            let layout = crowded.compactActivityGeometry
+            let size = crowded.compactActivitySize
+            let window = layout.frame(for: size)
+            let visibleContentTop = window.maxY - crowded.compactActivityTopPadding
+            expect(crowded.compactActivityUsesFooter && crowded.compactActivityWingWidth >= 42,
+                   "an active timer, paused timer or download has readable content with missing or crowded menu geometry")
+            expect(size.width == crowded.cameraWidth && visibleContentTop <= menuScreen.maxY - crowded.cameraHeight,
+                   "fallback content stays below the physical camera and its backing window never expands over adjacent menus")
+            expect(crowded.compactActivityWingWidth * 2 + crowded.compactActivityCameraGap
+                   + crowded.compactActivityHorizontalPadding * 2 == size.width,
+                   "both compact actions fit entirely in the fallback strip")
+            expect(menuScreen.contains(window) && window.maxY == menuScreen.maxY
+                   && crowded.restingSize(showsContent: false).height == 32,
+                   "a notched fallback keeps the physical top anchor and does not change quiet idle")
+        }
+        for available in [CGFloat(44), 80, 100, 180] {
+            let lateral = NotchGeometry(screen: menuScreen, safeAreaTop: 32, cameraWidth: 180,
+                                        menuBarHeight: 32, compactSideRoom: available)
+            expect(!lateral.compactActivityUsesFooter && lateral.compactActivitySize == lateral.musicStrip
+                   && lateral.compactActivityCameraGap == lateral.cameraWidth
+                   && lateral.compactActivityTopPadding == 0,
+                   "confirmed lateral room retains the existing single-row presentation around the camera")
+        }
+        for frame in frames {
+            let external = NotchGeometry(screen: frame, safeAreaTop: 0, cameraWidth: 0, menuBarHeight: 22,
+                                          compactSideRoom: nil)
+            let position = external.compactActivityGeometry.frame(for: external.compactActivitySize)
+            expect(position.maxY == frame.maxY - external.menuBarHeight && frame.contains(position)
+                   && external.compactActivityWingWidth >= 42 && external.compactActivityTopPadding == 0,
+                   "a fallback on a screen without a notch lives entirely below its menus, in every screen coordinate quadrant")
+        }
+        let mediaGeometry = NotchGeometry(screen: menuScreen, safeAreaTop: 32, cameraWidth: 180)
+        let regularFiles = mediaGeometry.expandedSize(module: .files)
+        let fileMedia = mediaGeometry.expandedSize(module: .files, fileMediaVisible: true)
+        expect(mediaGeometry.contentSize(for: fileMedia).height == 600 && fileMedia.height > regularFiles.height,
+               "opening the embedded media workspace gives previews, settings and actions six hundred useful points")
+        expect(mediaGeometry.expandedSize(module: .music, fileMediaVisible: true)
+               == mediaGeometry.expandedSize(module: .music),
+               "an open file-media session does not enlarge unrelated notch modules")
+        for height in [400.0, 520.0, 640.0] {
+            let custom = NotchGeometry(screen: menuScreen, safeAreaTop: 32, cameraWidth: 180,
+                                        layout: .custom, customHeight: height)
+            let target = custom.expandedSize(module: .files, fileMediaVisible: true)
+            expect(target.height <= height && menuScreen.contains(custom.frame(for: target)),
+                   "the embedded media workspace respects the user's custom height")
+        }
+        let shortScreen = CGRect(x: 0, y: 0, width: 1024, height: 600)
+        let shortMedia = NotchGeometry(screen: shortScreen, safeAreaTop: 0, cameraWidth: 0)
+        let shortTarget = shortMedia.expandedSize(module: .files, fileMediaVisible: true)
+        expect(shortTarget.height <= shortScreen.height - 48 && shortScreen.contains(shortMedia.frame(for: shortTarget)),
+               "the larger media workspace preserves the screen margin on shorter displays")
         expect(NotchSupport.screenIndex(preference: .automatic, builtIn: [false, true],
                                        notched: [false, true], main: 0) == 1,
                "automatic uses the notched built-in screen even with external main display")
@@ -309,6 +459,25 @@ enum NotchTests {
         expect(!session.canPresent, "another login session owns the display")
         session.onConsole = true
         expect(session.canPresent, "presentation resumes after every privacy condition clears")
+
+        expect(NotchArtworkTint.from(red: 0.3, green: 0.3, blue: 0.3) == nil
+               && NotchArtworkTint.from(red: 0.5, green: 0.5, blue: 0.55) == nil
+               && NotchArtworkTint.from(red: 0, green: 0, blue: 0) == nil,
+               "grey and black covers leave the notch without a coloured halo")
+        expect(NotchArtworkTint.from(red: .nan, green: 0.5, blue: 0.2) == nil
+               && NotchArtworkTint.from(red: 2, green: 0.5, blue: 0.2) == nil
+               && NotchArtworkTint.from(red: -1, green: 0.5, blue: 0.2) == nil,
+               "impossible pixels cannot produce a halo")
+        if let warm = NotchArtworkTint.from(red: 0.8, green: 0.3, blue: 0.25),
+           let dim = NotchArtworkTint.from(red: 0.16, green: 0.06, blue: 0.05) {
+            expect(abs(warm.red - 0.92) < 0.001 && warm.blue < 0.2 && warm.green < warm.red,
+                   "the cover's own hue survives, stretched onto a readable brightness")
+            expect(abs(dim.red - warm.red) < 0.001 && abs(dim.green - warm.green) < 0.001
+                   && abs(dim.blue - warm.blue) < 0.001,
+                   "a dark cover glows as strongly as a bright one of the same hue")
+        } else {
+            expect(false, "a colourful cover always yields a halo")
+        }
 
         let now = Date(timeIntervalSince1970: 100)
         let reply = Data("{\"pid\":12,\"isPlaying\":false,\"kMRMediaRemoteNowPlayingInfoTitle\":\"A track\",\"kMRMediaRemoteNowPlayingInfoDuration\":180,\"kMRMediaRemoteNowPlayingInfoElapsedTime\":20}".utf8)
@@ -353,4 +522,129 @@ enum NotchTests {
                && NotchPlaybackCommand.seek(-1).message == nil,
                "invalid internal positions cannot be serialized into adapter input")
     }
+    private static func calendarContracts(expect: (Bool, String) -> Void) {
+        let entitlements = NSDictionary(contentsOfFile: "Resources/Vorssaint.entitlements") as? [String: Any]
+        let info = NSDictionary(contentsOfFile: "Resources/Info.plist") as? [String: Any]
+        expect(entitlements?["com.apple.security.personal-information.calendars"] as? Bool == true
+               && !(info?["NSCalendarsFullAccessUsageDescription"] as? String ?? "").isEmpty,
+               "the signed hardened app declares both the calendar capability and its permission explanation")
+        expect(NotchCalendarSupport.requestFailed(status: .notDetermined, hasError: false)
+               && NotchCalendarSupport.requestFailed(status: .writeOnly, hasError: false),
+               "a calendar request that silently fails to resolve read access surfaces an error")
+        expect(!NotchCalendarSupport.requestFailed(status: .fullAccess, hasError: false)
+               && !NotchCalendarSupport.requestFailed(status: .denied, hasError: false)
+               && !NotchCalendarSupport.requestFailed(status: .restricted, hasError: false),
+               "successful grants and explicit system refusals keep their own calendar presentation")
+        expect(NotchCalendarSupport.requestFailed(status: .notDetermined, hasError: true),
+               "calendar authorization errors remain visible and retryable")
+        expect(NotchSupport.keepsPermissionSurface(requesting: true, resolvedAt: nil, now: 0),
+               "the calendar remains open while its system permission dialog is in use")
+        expect(NotchSupport.keepsPermissionSurface(requesting: false, resolvedAt: 10, now: 10.5)
+               && !NotchSupport.keepsPermissionSurface(requesting: false, resolvedAt: 10, now: 11)
+               && !NotchSupport.keepsPermissionSurface(requesting: false, resolvedAt: 10, now: 9),
+               "permission resolution protects only the short reactivation interval")
+        let defaults = UserDefaults(suiteName: "com.vorssaint.tests.notch-calendar")!
+        defaults.removePersistentDomain(forName: "com.vorssaint.tests.notch-calendar")
+        defer { defaults.removePersistentDomain(forName: "com.vorssaint.tests.notch-calendar") }
+        for (key, value) in Defaults.registeredDefaults where key.hasPrefix("notch") { defaults.set(value, forKey: key) }
+        for (key, value) in AppFeature.availabilityDefaults { defaults.set(value, forKey: key) }
+        expect(!NotchCalendarSupport.isEnabled(in: defaults), "calendar starts off")
+        defaults.set(true, forKey: DefaultsKey.notchEnabled)
+        expect(!NotchSupport.modules(in: defaults).contains(.calendar), "calendar remains opt-in when notch is enabled")
+        defaults.set(true, forKey: DefaultsKey.notchCalendarEnabled)
+        expect(NotchCalendarSupport.isEnabled(in: defaults), "calendar can be enabled independently")
+        defaults.set("calendar", forKey: DefaultsKey.notchHiddenModules)
+        expect(!NotchCalendarSupport.isEnabled(in: defaults), "hiding the calendar releases its resources")
+        defaults.set("", forKey: DefaultsKey.notchHiddenModules)
+        defaults.set(false, forKey: AppFeature.notchCalendar.availabilityKey)
+        expect(!NotchCalendarSupport.isEnabled(in: defaults), "removing the calendar from the hub stops its reader")
+        defaults.set(true, forKey: AppFeature.notchCalendar.availabilityKey)
+        defaults.set(false, forKey: DefaultsKey.notchEnabled)
+        expect(!NotchCalendarSupport.isEnabled(in: defaults), "the master switch also stops calendar reads")
+        expect(SettingsBackupSupport.exportKeys().isSuperset(of: [DefaultsKey.notchCalendarEnabled,
+                                                                 AppFeature.notchCalendar.availabilityKey]),
+               "calendar preferences travel in backup")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func event(_ id: String, _ start: Double, _ end: Double, allDay: Bool = false) -> NotchCalendarEvent {
+            NotchCalendarEvent(id: id, title: id, calendar: "Personal", start: now.addingTimeInterval(start),
+                               end: now.addingTimeInterval(end), allDay: allDay, location: "")
+        }
+        let allDay = event("all-day", -3600, 7200, allDay: true)
+        let current = event("recurring:today", -300, 300)
+        let tomorrow = event("recurring:tomorrow", 86400, 90000)
+        let later = event("later", 600, 900)
+        let entries = [tomorrow, allDay, later, current, current, event("ended", -60, 0),
+                       event("invalid", 60, 30), event("infinite", .infinity, .infinity)]
+        let upcoming = NotchCalendarSupport.upcoming(entries, now: now)
+        expect(upcoming.map(\.id) == [allDay.id, current.id, later.id, tomorrow.id],
+               "calendar deduplicates occurrences, preserves ongoing and all-day events and excludes invalid or ended entries")
+        expect(NotchCalendarSupport.next(entries, now: now) == current,
+               "an all-day event does not conceal the current appointment")
+        expect(NotchCalendarSupport.next(entries, now: now.addingTimeInterval(300)) == later,
+               "the next appointment advances exactly when the previous one ends")
+        expect(NotchCalendarSupport.next([allDay], now: now) == nil,
+               "an all-day-only calendar has no timed appointment")
+        expect(NotchCalendarSupport.nextRefresh(entries, now: now) == now.addingTimeInterval(300),
+               "the next refresh chooses the nearest future event boundary")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let midnight = calendar.date(from: DateComponents(year: 2026, month: 3, day: 8))!
+        let late = calendar.date(byAdding: .hour, value: 22, to: midnight)!.addingTimeInterval(3540)
+        let rollover = NotchCalendarSupport.nextRefresh([], now: late, calendar: calendar)
+        expect(rollover.timeIntervalSince(late) == 60 && calendar.component(.day, from: rollover) == 9,
+               "calendar refresh reaches the next local day across daylight saving time")
+        calendarMonthContracts(expect: expect)
+    }
+
+    private static func calendarMonthContracts(expect: (Bool, String) -> Void) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 0) -> Date {
+            calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour))!
+        }
+        let leapDay = date(2028, 2, 29)
+        for firstWeekday in [1, 2, 7] {
+            calendar.firstWeekday = firstWeekday
+            let days = NotchCalendarSupport.monthDays(containing: leapDay, calendar: calendar)
+            expect(days.count == 42 && Set(days).count == 42,
+                   "the month has six stable complete weeks with no duplicated dates")
+            expect(calendar.component(.weekday, from: days[0]) == firstWeekday && days.contains(leapDay),
+                   "the grid honors the user's first weekday and includes leap day")
+            expect(days.filter { calendar.component(.month, from: $0) == 2 }.count == 29,
+                   "every date of a leap February appears exactly once")
+        }
+        let march = NotchCalendarSupport.monthDays(containing: date(2026, 3, 15), calendar: calendar)
+        expect(march.contains(date(2026, 3, 8)) && march.contains(date(2026, 3, 9))
+               && date(2026, 3, 9).timeIntervalSince(date(2026, 3, 8)) == 23 * 3600,
+               "month dates stay at local midnight through a daylight saving transition")
+        let now = date(2026, 3, 31, 12)
+        let interval = NotchCalendarSupport.readInterval(month: now, now: now, calendar: calendar)
+        expect(interval.start <= date(2026, 3, 1) && interval.end >= date(2026, 4, 7),
+               "the visible month query also covers all seven upcoming days across month boundaries")
+        let distant = NotchCalendarSupport.readInterval(month: date(2030, 12, 1), now: now, calendar: calendar)
+        expect(distant.duration <= 43 * 86400 && distant.start > now,
+               "browsing a distant month reads only its grid, never every intervening event")
+        let resting = NotchCalendarSupport.readInterval(month: nil, now: now, calendar: calendar)
+        expect(resting.start == date(2026, 3, 31) && resting.end == date(2026, 4, 7),
+               "closing the month returns the reader to today's seven-day interval")
+        let allDay = NotchCalendarEvent(id: "all", title: "Holiday", calendar: "Personal",
+            start: date(2026, 3, 8), end: date(2026, 3, 10), allDay: true, location: "")
+        let overnight = NotchCalendarEvent(id: "overnight", title: "Travel", calendar: "Personal",
+            start: date(2026, 3, 8, 23), end: date(2026, 3, 9, 2), allDay: false, location: "")
+        let ended = NotchCalendarEvent(id: "ended", title: "Morning", calendar: "Personal",
+            start: date(2026, 3, 8, 9), end: date(2026, 3, 8, 10), allDay: false, location: "")
+        let entries = NotchCalendarSupport.ordered([overnight, allDay, ended, ended])
+        expect(NotchCalendarSupport.events(entries, on: date(2026, 3, 8), calendar: calendar).map(\.id)
+               == ["all", "ended", "overnight"],
+               "selected dates retain completed appointments and put all-day events first")
+        expect(NotchCalendarSupport.events(entries, on: date(2026, 3, 9), calendar: calendar).map(\.id)
+               == ["all", "overnight"],
+               "overnight and multi-day events appear on every day they overlap")
+        expect(NotchCalendarSupport.events(entries, on: date(2026, 3, 10), calendar: calendar).isEmpty,
+               "exclusive midnight endings do not mark or populate the following date")
+        expect(NotchCalendarSupport.upcoming(entries, now: date(2026, 3, 8, 12)).map(\.id)
+               == ["all", "overnight"],
+               "upcoming mode still hides completed appointments after adding month history")
+    }
+
 }
