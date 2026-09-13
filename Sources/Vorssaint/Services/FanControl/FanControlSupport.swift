@@ -188,6 +188,12 @@ enum FanControlPolicy {
             && abs(target - expected) <= max(2, expected * 0.001)
     }
 
+    /// `Ftst` is an Intel-era override that Apple Silicon does not expose, so
+    /// a Mac without the key has nothing to force and nothing to fail at.
+    static func forceTestSatisfied(keyExists: Bool, writeSucceeded: Bool) -> Bool {
+        !keyExists || writeSucceeded
+    }
+
     static func coolingTargetRPM(minimum: Double, maximum: Double,
                                  level: Int) -> Double? {
         guard validBounds(minimum: minimum, maximum: maximum),
