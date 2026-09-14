@@ -188,8 +188,8 @@ enum FanControlPolicy {
             && abs(target - expected) <= max(2, expected * 0.001)
     }
 
-    /// `Ftst` is an Intel-era override that Apple Silicon does not expose, so
-    /// a Mac without the key has nothing to force and nothing to fail at.
+    /// Not every Mac exposes `Ftst`. Where it is present the unlock write has to
+    /// succeed; where it is absent there is nothing to force and nothing to fail.
     static func forceTestSatisfied(keyExists: Bool, writeSucceeded: Bool) -> Bool {
         !keyExists || writeSucceeded
     }
